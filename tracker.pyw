@@ -124,14 +124,25 @@ class DataManager:
         if DATA_FILE.exists():
             try:
                 with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                defaults = self._default()
+                for key in defaults:
+                    if key not in data:
+                        data[key] = defaults[key]
+                # Prune sessions older than 180 days
+                cutoff = (datetime.now() - timedelta(days=180)).isoformat()
+                data['sessions'] = [s for s in data.get('sessions', [])
+                                    if s.get('start', '') >= cutoff]
+                return data
             except Exception:
                 pass
         return self._default()
 
     def save(self):
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        tmp = DATA_FILE.with_suffix('.tmp')
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2, default=str)
+        os.replace(tmp, DATA_FILE)
 
     def _default(self) -> dict:
         return {
@@ -177,7 +188,10 @@ class DataManager:
         self.save()
 
     def remove_category(self, cat_id: str):
+        if self.active_session and self.active_session["category_id"] == cat_id:
+            self._commit_active()
         self.data["categories"] = [c for c in self.categories if c["id"] != cat_id]
+        self.data["app_mappings"] = [m for m in self.app_mappings if m["category_id"] != cat_id]
         self.save()
 
     # ── App mapping helpers ──
@@ -429,7 +443,6 @@ class TrackerScreen(QWidget):
         elif idx == 3:
             self._settings_page.refresh()
         # idx == 4: help page, no refresh needed
-        # idx == 4 (help) needs no refresh
 
     def _build_help_page(self) -> QWidget:
         outer = QWidget()
@@ -483,66 +496,6 @@ class TrackerScreen(QWidget):
 
         section("🔒  Один екземпляр",
             "Якщо програма вже запущена в треї — повторний запуск буде заблокований. "
-            "Спочатку виходь через трей, потім запускай знову.")
-
-        lay.addStretch()
-        scroll.setWidget(inner)
-        ol.addWidget(scroll)
-        return outer
-
-    def _build_help_page(self) -> QWidget:
-        outer = QWidget()
-        ol = QVBoxLayout(outer)
-        ol.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea()
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidgetResizable(True)
-        inner = QWidget()
-        lay = QVBoxLayout(inner)
-        lay.setContentsMargins(4, 4, 4, 16)
-        lay.setSpacing(12)
-
-        def section(emoji_title: str, body: str):
-            card = QWidget()
-            card.setStyleSheet("QWidget { background: #2C2C2E; border-radius: 12px; }")
-            cl = QVBoxLayout(card)
-            cl.setContentsMargins(14, 12, 14, 12)
-            cl.setSpacing(6)
-            h = QLabel(emoji_title)
-            h.setStyleSheet("color: #7B6CF6; font-size: 13px; font-weight: 700; background: transparent;")
-            h.setWordWrap(True)
-            b = QLabel(body)
-            b.setStyleSheet("color: #EBEBF5; font-size: 12px; background: transparent;")
-            b.setWordWrap(True)
-            cl.addWidget(h)
-            cl.addWidget(b)
-            lay.addWidget(card)
-
-        section("Ручний трекер",
-            "Обери категорію зі списку і натисни > щоб почати. "
-            "Натисни Stop коли закінчив. "
-            "Всі сесії відображаються в журналі нижче.")
-
-        section("Авто трекер",
-            "Відкрий вкладку Авто і додай правило: назва.exe -> категорія. "
-            "Трекер кожні 3 секунди дивиться яке вікно активне і сам запускає або зупиняє сесію. "
-            "Щоб знайти потрібний процес — натисни Показати запущені процеси.")
-
-        section("Статистика",
-            "Показує час по категоріях за сьогодні, тиждень або місяць у вигляді барів. "
-            "Перемикай період кнопками зверху.")
-
-        section("Категорії (Налашт.)",
-            "Додавай, редагуй і видаляй категорії. "
-            "Колір обирається при створенні. "
-            "Після видалення категорії її сесії зникають зі статистики.")
-
-        section("Трей",
-            "Закриття вікна не зупиняє програму — вона лишається в системному треї. "
-            "Клік по іконці — відкрити. ПКМ -> Вийти щоб повністю зупинити.")
-
-        section("Один екземпляр",
-            "Якщо програма вже в треї — повторний запуск буде заблокований. "
             "Спочатку виходь через трей, потім запускай знову.")
 
         lay.addStretch()
@@ -680,7 +633,7 @@ class TrackerScreen(QWidget):
         self._auto_cat_combo.clear()
         for cat in self.dm.categories:
             self._auto_cat_combo.addItem(cat["name"])
-        if self.dm.active_session:
+        if self.dm.active_session and self._auto_active:
             cat = self.dm.get_category(self.dm.active_session["category_id"])
             name  = cat["name"]  if cat else "?"
             color = cat["color"] if cat else "#888"
@@ -811,7 +764,7 @@ class TrackerScreen(QWidget):
             start = datetime.fromisoformat(self.dm.active_session["start"])
             secs = int((datetime.now() - start).total_seconds())
             self._timer_display.setText(fmt_timer(secs))
-            if secs % 10 == 0:
+            if secs % 60 == 0:
                 _clear_layout(self._cards_grid)
                 active_cid = self.dm.active_session["category_id"]
                 for i, cat in enumerate(self.dm.categories):
@@ -834,6 +787,9 @@ class TrackerScreen(QWidget):
 
     def auto_start(self, category_id: str):
         if self.dm.active_session and self.dm.active_session["category_id"] == category_id:
+            return
+        # Don't interrupt a manually-started session
+        if self.dm.active_session and not self._auto_active:
             return
         self._auto_active = True
         self.dm.start_session(category_id)
@@ -1180,6 +1136,11 @@ class MainWindow(QMainWindow):
         self._wt = WindowTrackerThread()
         self._wt.window_changed.connect(self._on_window)
         self._wt.start()
+        QApplication.instance().aboutToQuit.connect(self._stop_tracker)
+
+    def _stop_tracker(self):
+        self._wt.stop()
+        self._wt.wait(2000)
 
     def _on_window(self, proc: str, _title: str):
         cat_id = self.dm.get_category_for_process(proc)
@@ -1251,10 +1212,17 @@ def _journal_row(cat: dict, session: dict) -> QWidget:
 # Single-instance lock -- held for the entire process lifetime
 import socket as _socket
 _lock_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+
+# ──────────────────────────── ENTRY POINT ────────────────────────────
+
+# Single-instance lock -- held for the entire process lifetime
+import socket as _socket
+_lock_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
 try:
     _lock_sock.bind(('127.0.0.1', 47291))
 except OSError:
-    sys.exit(0)
+    import sys as _sys
+    _sys.exit(0)
 
 
 def main():
