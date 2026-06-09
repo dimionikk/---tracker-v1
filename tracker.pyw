@@ -146,7 +146,8 @@ QMenu::item:selected { background: #3A3A3C; }
 def fmt_time(seconds: int) -> str:
     h = seconds // 3600
     m = (seconds % 3600) // 60
-    return f"{h}г {m:02d}хв"
+    s = seconds % 60
+    return f"{h}г {m:02d}хв {s:02d}с"
 
 def fmt_timer(seconds: int) -> str:
     h = seconds // 3600
@@ -394,13 +395,13 @@ class BarWidget(QWidget):
 class CategoryCard(QFrame):
     def __init__(self, category: dict, seconds: int, active: bool = False):
         super().__init__()
-        self.setFixedHeight(80)
+        self.setFixedHeight(68)
         border = category["color"] if active else "#3A3A3C"
         self.setStyleSheet(
             f"QFrame {{ background: #2C2C2E; border-radius: 12px; border: 1.5px solid {border}; }}"
         )
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setContentsMargins(10, 8, 10, 8)
         lay.setSpacing(4)
 
         top = QHBoxLayout()
@@ -414,7 +415,7 @@ class CategoryCard(QFrame):
         lay.addLayout(top)
 
         time_lbl = QLabel(fmt_time(seconds))
-        time_lbl.setStyleSheet("color: #FFFFFF; font-size: 19px; font-weight: 500; border: none;")
+        time_lbl.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: 500; border: none;")
         lay.addWidget(time_lbl)
 
 # ──────────────────────────── ЕКРАН ТРЕКЕРА ────────────────────────────
@@ -547,7 +548,7 @@ class TrackerScreen(QWidget):
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 4, 0, 0)
-        lay.setSpacing(10)
+        lay.setSpacing(7)
 
         lbl = QLabel("СЬОГОДНІ")
         lbl.setStyleSheet("color: #8E8E93; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
@@ -555,13 +556,13 @@ class TrackerScreen(QWidget):
 
         self._cards_container = QWidget()
         self._cards_grid = QGridLayout(self._cards_container)
-        self._cards_grid.setSpacing(8)
+        self._cards_grid.setSpacing(6)
         self._cards_grid.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self._cards_container)
 
         timer_frame = QFrame()
         timer_frame.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; }")
-        timer_frame.setMinimumHeight(130)
+        timer_frame.setMinimumHeight(110)
         tl = QVBoxLayout(timer_frame)
         tl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tl.setSpacing(6)
@@ -573,7 +574,7 @@ class TrackerScreen(QWidget):
         self._timer_display = QLabel("00:00:00")
         self._timer_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._timer_display.setStyleSheet(
-            "color: #FFFFFF; font-size: 44px; font-weight: 300; font-family: 'Courier New', monospace;"
+            "color: #FFFFFF; font-size: 36px; font-weight: 300; font-family: 'Courier New', monospace;"
         )
 
         self._stop_btn = QPushButton("⏹  Стоп")
