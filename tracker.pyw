@@ -2,10 +2,50 @@
 # -*- coding: utf-8 -*-
 """
 Трекер активності — PyQt6
-Залежності: pip install PyQt6 psutil
-Windows додатково: pip install pywin32
-Linux додатково: sudo apt install xdotool
 """
+
+# ── Автоматична перевірка та встановлення залежностей ──────────────────
+import sys, importlib.util, subprocess as _sp, os as _os
+
+_DEPS = [
+    ("PyQt6",    "PyQt6"),
+    ("psutil",   "psutil"),
+    ("win32gui", "pywin32"),
+]
+_missing = [pkg for mod, pkg in _DEPS if importlib.util.find_spec(mod) is None]
+
+if _missing:
+    try:
+        import tkinter as _tk
+        from tkinter import ttk as _ttk
+        _root = _tk.Tk()
+        _root.title("Трекер — встановлення")
+        _root.geometry("340x90")
+        _root.resizable(False, False)
+        _root.eval("tk::PlaceWindow . center")
+        _tk.Label(
+            _root,
+            text=f"Встановлення залежностей: {', '.join(_missing)}",
+            font=("Arial", 10),
+        ).pack(pady=(12, 4))
+        _bar = _ttk.Progressbar(_root, mode="indeterminate", length=280)
+        _bar.pack()
+        _bar.start(12)
+        _root.update()
+        _sp.check_call(
+            [sys.executable, "-m", "pip", "install", "--quiet", *_missing],
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+        )
+        _root.destroy()
+    except Exception:
+        # Якщо tkinter недоступний — встановлюємо тихо
+        _sp.check_call(
+            [sys.executable, "-m", "pip", "install", "--quiet", *_missing],
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+        )
+    # Перезапускаємо з вже встановленими залежностями
+    _os.execv(sys.executable, [sys.executable] + sys.argv)
+# ───────────────────────────────────────────────────────────────────────
 
 import sys
 import json
