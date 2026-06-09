@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPixmap, QPainter
 
-# ──────────────────────────── CONSTANTS ────────────────────────────
+# ──────────────────────────── КОНСТАНТИ ────────────────────────────
 
 DATA_FILE = Path(os.path.dirname(os.path.abspath(__file__))) / "tracker_data.json"
 
@@ -101,7 +101,7 @@ QMenu::item { padding: 8px 16px; }
 QMenu::item:selected { background: #3A3A3C; }
 """
 
-# ──────────────────────────── HELPERS ────────────────────────────
+# ──────────────────────────── ДОПОМІЖНІ ФУНКЦІЇ ────────────────────────────
 
 def fmt_time(seconds: int) -> str:
     h = seconds // 3600
@@ -114,7 +114,7 @@ def fmt_timer(seconds: int) -> str:
     s = seconds % 60
     return f"{h:02d}:{m:02d}:{s:02d}"
 
-# ──────────────────────────── DATA MANAGER ────────────────────────────
+# ──────────────────────────── МЕНЕДЖЕР ДАНИХ ────────────────────────────
 
 class DataManager:
     def __init__(self):
@@ -129,7 +129,7 @@ class DataManager:
                 for key in defaults:
                     if key not in data:
                         data[key] = defaults[key]
-                # Prune sessions older than 180 days
+                # Видаляємо сесії старші за 180 днів
                 cutoff = (datetime.now() - timedelta(days=180)).isoformat()
                 data['sessions'] = [s for s in data.get('sessions', [])
                                     if s.get('start', '') >= cutoff]
@@ -158,7 +158,7 @@ class DataManager:
             "active_session": None,
         }
 
-    # ── Shortcuts ──
+    # ── Скорочення ──
     @property
     def categories(self) -> list:
         return self.data["categories"]
@@ -179,7 +179,7 @@ class DataManager:
     def active_session(self) -> dict | None:
         return self.data.get("active_session")
 
-    # ── Category helpers ──
+    # ── Допоміжні методи категорій ──
     def get_category(self, cat_id: str) -> dict | None:
         return next((c for c in self.categories if c["id"] == cat_id), None)
 
@@ -194,7 +194,7 @@ class DataManager:
         self.data["app_mappings"] = [m for m in self.app_mappings if m["category_id"] != cat_id]
         self.save()
 
-    # ── App mapping helpers ──
+    # ── Допоміжні методи прив'язок програм ──
     def get_category_for_process(self, process_name: str) -> str | None:
         pl = process_name.lower()
         for m in self.app_mappings:
@@ -203,7 +203,7 @@ class DataManager:
         return None
 
     def add_mapping(self, process: str, category_id: str):
-        # Replace existing mapping for same process if any
+        # Замінюємо наявну прив'язку для того ж процесу, якщо є
         self.data["app_mappings"] = [m for m in self.app_mappings if m["process"].lower() != process.lower()]
         self.app_mappings.append({"process": process, "category_id": category_id})
         self.save()
@@ -212,7 +212,7 @@ class DataManager:
         self.data["app_mappings"] = [m for m in self.app_mappings if m["process"] != process]
         self.save()
 
-    # ── Session helpers ──
+    # ── Допоміжні методи сесій ──
     def start_session(self, category_id: str) -> dict:
         if self.active_session:
             self._commit_active()
@@ -243,7 +243,7 @@ class DataManager:
         self.save()
         return s
 
-    # ── Stats ──
+    # ── Статистика ──
     def get_today_time(self, category_id: str) -> int:
         today = date.today().isoformat()
         total = sum(
@@ -285,10 +285,10 @@ class DataManager:
         result.sort(key=lambda s: s["start"], reverse=True)
         return result
 
-# ──────────────────────────── WINDOW TRACKER THREAD ────────────────────────────
+# ──────────────────────────── ПОТІК ВІДСТЕЖЕННЯ ВІКОН ────────────────────────────
 
 class WindowTrackerThread(QThread):
-    window_changed = pyqtSignal(str, str)   # process_name, title
+    window_changed = pyqtSignal(str, str)   # назва_процесу, заголовок
 
     def __init__(self):
         super().__init__()
@@ -328,7 +328,7 @@ class WindowTrackerThread(QThread):
     def stop(self):
         self._running = False
 
-# ──────────────────────────── BAR WIDGET ────────────────────────────
+# ──────────────────────────── ВІДЖЕТ ПРОГРЕС-БАР ────────────────────────────
 
 class BarWidget(QWidget):
     def __init__(self, ratio: float, color: str):
@@ -349,7 +349,7 @@ class BarWidget(QWidget):
             p.drawRoundedRect(0, 0, fw, 8, 4, 4)
         p.end()
 
-# ──────────────────────────── CATEGORY CARD ────────────────────────────
+# ──────────────────────────── КАРТКА КАТЕГОРІЇ ────────────────────────────
 
 class CategoryCard(QFrame):
     def __init__(self, category: dict, seconds: int, active: bool = False):
@@ -377,14 +377,14 @@ class CategoryCard(QFrame):
         time_lbl.setStyleSheet("color: #FFFFFF; font-size: 19px; font-weight: 500; border: none;")
         lay.addWidget(time_lbl)
 
-# ──────────────────────────── TRACKER SCREEN ────────────────────────────
+# ──────────────────────────── ЕКРАН ТРЕКЕРА ────────────────────────────
 
 class TrackerScreen(QWidget):
     def __init__(self, dm: DataManager, on_global_refresh=None):
         super().__init__()
         self.dm = dm
         self._on_global_refresh = on_global_refresh
-        self._auto_active = False  # True only when auto-tracker started the session
+        self._auto_active = False  # True лише коли сесію запустив авто-трекер
         self._setup_ui()
         self._tick = QTimer()
         self._tick.timeout.connect(self._update_timer)
@@ -395,7 +395,7 @@ class TrackerScreen(QWidget):
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(10)
 
-        # Tab switcher
+        # Перемикач вкладок
         tab_row = QHBoxLayout()
         tab_row.setSpacing(6)
         self._tab_btns: list[QPushButton] = []
@@ -442,7 +442,7 @@ class TrackerScreen(QWidget):
             self._stats_page.refresh()
         elif idx == 3:
             self._settings_page.refresh()
-        # idx == 4: help page, no refresh needed
+        # idx == 4: сторінка допомоги, оновлення не потрібне
 
     def _build_help_page(self) -> QWidget:
         outer = QWidget()
@@ -713,7 +713,7 @@ class TrackerScreen(QWidget):
         dlg.exec()
 
     def refresh(self):
-        # Rebuild combo
+        # Оновлюємо випадаючий список
         prev_idx = self._combo.currentIndex()
         self._combo.clear()
         self._combo.addItem("Оберіть категорію…")
@@ -722,14 +722,14 @@ class TrackerScreen(QWidget):
         if 0 < prev_idx <= len(self.dm.categories):
             self._combo.setCurrentIndex(prev_idx)
 
-        # Rebuild cards
+        # Оновлюємо картки категорій
         _clear_layout(self._cards_grid)
         active_cid = self.dm.active_session["category_id"] if self.dm.active_session else None
         for i, cat in enumerate(self.dm.categories):
             card = CategoryCard(cat, self.dm.get_today_time(cat["id"]), cat["id"] == active_cid)
             self._cards_grid.addWidget(card, i // 2, i % 2)
 
-        # Update timer status
+        # Оновлюємо статус таймера
         if self.dm.active_session:
             cat = self.dm.get_category(self.dm.active_session["category_id"])
             self._timer_status.setText(f"{cat['name']} — активно" if cat else "Активно")
@@ -742,7 +742,7 @@ class TrackerScreen(QWidget):
             self._timer_display.setText("00:00:00")
             self._stop_btn.hide()
 
-        # Rebuild journal
+        # Оновлюємо журнал сесій
         _clear_layout(self._journal_layout)
         sessions = self.dm.get_today_sessions()
         if sessions:
@@ -788,7 +788,7 @@ class TrackerScreen(QWidget):
     def auto_start(self, category_id: str):
         if self.dm.active_session and self.dm.active_session["category_id"] == category_id:
             return
-        # Don't interrupt a manually-started session
+        # Не переривати сесію, запущену вручну
         if self.dm.active_session and not self._auto_active:
             return
         self._auto_active = True
@@ -796,13 +796,13 @@ class TrackerScreen(QWidget):
         self.refresh()
 
     def auto_stop(self):
-        # Only stop if the session was started by the auto-tracker, not manually
+        # Зупиняємо лише якщо сесію запустив авто-трекер, а не вручну
         if self.dm.active_session and self._auto_active:
             self._auto_active = False
             self.dm.stop_session()
             self.refresh()
 
-# ──────────────────────────── STATISTICS SCREEN ────────────────────────────
+# ──────────────────────────── ЕКРАН СТАТИСТИКИ ────────────────────────────
 
 class StatisticsScreen(QWidget):
     def __init__(self, dm: DataManager):
@@ -816,7 +816,7 @@ class StatisticsScreen(QWidget):
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(12)
 
-        # Period switcher
+        # Перемикач періоду
         sw = QHBoxLayout()
         sw.setSpacing(6)
         self._period_btns: dict[str, QPushButton] = {}
@@ -834,7 +834,7 @@ class StatisticsScreen(QWidget):
         self._period_btns["today"].setChecked(True)
         root.addLayout(sw)
 
-        # Summary cards
+        # Картки підсумку
         summary = QHBoxLayout()
         summary.setSpacing(8)
 
@@ -922,7 +922,7 @@ class StatisticsScreen(QWidget):
 
         self._bars_layout.addStretch()
 
-# ──────────────────────────── SETTINGS SCREEN ────────────────────────────
+# ──────────────────────────── ЕКРАН НАЛАШТУВАНЬ ────────────────────────────
 
 class SettingsScreen(QWidget):
     def __init__(self, dm: DataManager, on_global_refresh):
@@ -944,7 +944,7 @@ class SettingsScreen(QWidget):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(14)
 
-        # ─ Categories ─
+        # ─ Категорії ─
         lay.addWidget(_section_label("КАТЕГОРІЇ"))
         self._cat_list = QWidget()
         self._cat_ll = QVBoxLayout(self._cat_list)
@@ -968,7 +968,7 @@ class SettingsScreen(QWidget):
         add_row.addWidget(add_cat_btn)
         lay.addLayout(add_row)
 
-        # ─ General ─
+        # ─ Загальні ─
         lay.addWidget(_section_label("ЗАГАЛЬНЕ"))
         lay.addWidget(self._make_toggle("Запуск при старті системи", "autostart"))
         lay.addWidget(self._make_toggle("Нагадування (якщо таймер не активний)", "reminders"))
@@ -1080,7 +1080,7 @@ class SettingsScreen(QWidget):
         rl.addWidget(del_btn)
         return w
 
-# ──────────────────────────── MAIN WINDOW ────────────────────────────
+# ──────────────────────────── ГОЛОВНЕ ВІКНО ────────────────────────────
 
 class MainWindow(QMainWindow):
     def __init__(self, dm: DataManager):
@@ -1101,7 +1101,7 @@ class MainWindow(QMainWindow):
         ml.setContentsMargins(0, 0, 0, 0)
         ml.setSpacing(0)
 
-        # Header
+        # Заголовок
         header = QWidget()
         header.setFixedHeight(52)
         header.setStyleSheet("background: #2C2C2E;")
@@ -1158,7 +1158,7 @@ class MainWindow(QMainWindow):
         )
 
 
-# ──────────────────────────── UTIL FUNCTIONS ────────────────────────────
+# ──────────────────────────── УТИЛІТАРНІ ФУНКЦІЇ ────────────────────────────
 
 def _clear_layout(layout):
     while layout.count():
@@ -1207,15 +1207,9 @@ def _journal_row(cat: dict, session: dict) -> QWidget:
     return w
 
 
-# ──────────────────────────── ENTRY POINT ────────────────────────────
+# ──────────────────────────── ТОЧКА ВХОДУ ────────────────────────────
 
-# Single-instance lock -- held for the entire process lifetime
-import socket as _socket
-_lock_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-
-# ──────────────────────────── ENTRY POINT ────────────────────────────
-
-# Single-instance lock -- held for the entire process lifetime
+# Блокування одного екземпляра — тримається весь час роботи процесу
 import socket as _socket
 _lock_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
 try:
