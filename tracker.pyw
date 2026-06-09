@@ -370,6 +370,7 @@ class TrackerScreen(QWidget):
         super().__init__()
         self.dm = dm
         self._on_global_refresh = on_global_refresh
+        self._auto_active = False  # True only when auto-tracker started the session
         self._setup_ui()
         self._tick = QTimer()
         self._tick.timeout.connect(self._update_timer)
@@ -822,21 +823,26 @@ class TrackerScreen(QWidget):
         if idx <= 0:
             return
         cat = self.dm.categories[idx - 1]
+        self._auto_active = False
         self.dm.start_session(cat["id"])
         self.refresh()
 
     def _on_stop(self):
+        self._auto_active = False
         self.dm.stop_session()
         self.refresh()
 
     def auto_start(self, category_id: str):
         if self.dm.active_session and self.dm.active_session["category_id"] == category_id:
             return
+        self._auto_active = True
         self.dm.start_session(category_id)
         self.refresh()
 
     def auto_stop(self):
-        if self.dm.active_session:
+        # Only stop if the session was started by the auto-tracker, not manually
+        if self.dm.active_session and self._auto_active:
+            self._auto_active = False
             self.dm.stop_session()
             self.refresh()
 
