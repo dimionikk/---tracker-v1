@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Мої інструменти — точка входу, головне вікно та бічна панель.
-
-Щоб додати новий інструмент:
-  1. Створи папку tools/<назва>/ зі screen.py (+ manager.py за потреби)
-     і __init__.py, що визначає клас <Назва>Tool(BaseTool).
-  2. Додай імпорт і один рядок у список TOOLS нижче.
-Бічна панель підхопить іконку (ICON) і назву (TITLE) автоматично.
-"""
-
-# ── Автоматична перевірка та встановлення залежностей ──────────────────
 import sys, importlib.util, subprocess as _sp, os as _os
 
 _DEPS = [
@@ -44,14 +31,11 @@ if _missing:
         )
         _root.destroy()
     except Exception:
-        # Якщо tkinter недоступний — встановлюємо тихо
         _sp.check_call(
             [sys.executable, "-m", "pip", "install", "--quiet", *_missing],
             stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
         )
-    # Перезапускаємо з вже встановленими залежностями
     _os.execv(sys.executable, [sys.executable] + sys.argv)
-# ───────────────────────────────────────────────────────────────────────
 
 import os
 import socket
@@ -67,14 +51,10 @@ from styles import STYLE
 from tools.tracker import TrackerTool
 from tools.planner import PlannerTool
 
-# ──────────────────────────── ІНСТРУМЕНТИ ────────────────────────────
-
 TOOLS = [
     TrackerTool(),
     PlannerTool(),
 ]
-
-# ──────────────────────────── БІЧНА ПАНЕЛЬ ────────────────────────────
 
 class Sidebar(QWidget):
     def __init__(self, tools: list, on_select):
@@ -100,8 +80,6 @@ class Sidebar(QWidget):
 
         lay.addStretch()
         self._group.button(0).setChecked(True)
-
-# ──────────────────────────── ГОЛОВНЕ ВІКНО ────────────────────────────
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -165,16 +143,11 @@ class MainWindow(QMainWindow):
             QSystemTrayIcon.MessageIcon.Information, 2500
         )
 
-
-# ──────────────────────────── ТОЧКА ВХОДУ ────────────────────────────
-
-# Блокування одного екземпляра — тримається весь час роботи процесу
 _lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
     _lock_sock.bind(('127.0.0.1', 47291))
 except OSError:
     sys.exit(0)
-
 
 def main():
     app = QApplication(sys.argv)
@@ -183,7 +156,6 @@ def main():
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()

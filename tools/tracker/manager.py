@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Менеджер даних трекера — категорії, прив'язки програм, сесії.
-"""
-
 import json
 import os
 import uuid
@@ -12,7 +6,6 @@ from datetime import datetime, timedelta, date
 from tools.common import DATA_DIR
 
 DATA_FILE = DATA_DIR / "tracker.json"
-
 
 class DataManager:
     def __init__(self):
@@ -27,7 +20,6 @@ class DataManager:
                 for key in defaults:
                     if key not in data:
                         data[key] = defaults[key]
-                # Видаляємо сесії старші за 180 днів
                 cutoff = (datetime.now() - timedelta(days=180)).isoformat()
                 data['sessions'] = [s for s in data.get('sessions', [])
                                     if s.get('start', '') >= cutoff]
@@ -56,7 +48,6 @@ class DataManager:
             "active_session": None,
         }
 
-    # ── Скорочення ──
     @property
     def categories(self) -> list:
         return self.data["categories"]
@@ -77,7 +68,6 @@ class DataManager:
     def active_session(self) -> dict | None:
         return self.data.get("active_session")
 
-    # ── Допоміжні методи категорій ──
     def get_category(self, cat_id: str) -> dict | None:
         return next((c for c in self.categories if c["id"] == cat_id), None)
 
@@ -92,7 +82,6 @@ class DataManager:
         self.data["app_mappings"] = [m for m in self.app_mappings if m["category_id"] != cat_id]
         self.save()
 
-    # ── Допоміжні методи прив'язок програм ──
     def get_category_for_process(self, process_name: str) -> str | None:
         pl = process_name.lower()
         for m in self.app_mappings:
@@ -101,7 +90,6 @@ class DataManager:
         return None
 
     def add_mapping(self, process: str, category_id: str):
-        # Замінюємо наявну прив'язку для того ж процесу, якщо є
         self.data["app_mappings"] = [m for m in self.app_mappings if m["process"].lower() != process.lower()]
         self.app_mappings.append({"process": process, "category_id": category_id})
         self.save()
@@ -110,7 +98,6 @@ class DataManager:
         self.data["app_mappings"] = [m for m in self.app_mappings if m["process"] != process]
         self.save()
 
-    # ── Допоміжні методи сесій ──
     def start_session(self, category_id: str) -> dict:
         if self.active_session:
             self._commit_active()
@@ -141,7 +128,6 @@ class DataManager:
         self.save()
         return s
 
-    # ── Статистика ──
     def get_today_time(self, category_id: str) -> int:
         today = date.today().isoformat()
         total = sum(
@@ -182,3 +168,15 @@ class DataManager:
         result = [s for s in self.sessions if s["start"][:10] == today and s.get("end")]
         result.sort(key=lambda s: s["start"], reverse=True)
         return result
+
+    def get_day_stats(self, date_str: str) -> dict:
+        stats = {c["id"]: 0 for c in self.categories}
+        for s in self.sessions:
+            if s.get("end") and s["start"][:10] == date_str:
+                cid = s["category_id"]
+                stats[cid] = stats.get(cid, 0) + s["duration"]
+        if self.active_session and self.active_session["start"][:10] == date_str:
+            start = datetime.fromisoformat(self.active_session["start"])
+            cid = self.active_session["category_id"]
+            stats[cid] = stats.get(cid, 0) + int((datetime.now() - start).total_seconds())
+        return stats

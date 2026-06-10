@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-UI планувальника — денна шкала часу з подіями та підсвіткою конфліктів.
-"""
-
 from datetime import date, datetime, timedelta
 
 from PyQt6.QtWidgets import (
@@ -14,37 +8,15 @@ from PyQt6.QtCore import Qt, QTimer, QTime
 from PyQt6.QtGui import QColor, QPainter
 
 from styles import STYLE
-from tools.common import section_label, icon_btn
+from tools.common import section_label, icon_btn, format_date_ua
 from .manager import PlannerManager, time_to_minutes, minutes_to_time
-
-# ──────────────────────────── КОНСТАНТИ ШКАЛИ ────────────────────────────
 
 PX_PER_HOUR = 60
 TIMELINE_HEIGHT = 24 * PX_PER_HOUR
 LABEL_WIDTH = 46
 TOP_PAD = 6
 
-_WEEKDAYS = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"]
-_MONTHS = ["січня", "лютого", "березня", "квітня", "травня", "червня",
-           "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"]
-
-
-def format_date_ua(d: date) -> str:
-    base = f"{_WEEKDAYS[d.weekday()]}, {d.day} {_MONTHS[d.month - 1]}"
-    today = date.today()
-    if d == today:
-        return f"Сьогодні · {base}"
-    if d == today - timedelta(days=1):
-        return f"Вчора · {base}"
-    if d == today + timedelta(days=1):
-        return f"Завтра · {base}"
-    return base
-
-
-# ──────────────────────────── БЛОК ПОДІЇ ────────────────────────────
-
 class EventBlock(QFrame):
-    """Блок події на шкалі часу. Клік відкриває редагування."""
 
     def __init__(self, event: dict, conflict: bool, on_click, parent=None):
         super().__init__(parent)
@@ -75,11 +47,7 @@ class EventBlock(QFrame):
             self._on_click(self.event_id)
         super().mousePressEvent(event)
 
-
-# ──────────────────────────── ШКАЛА ЧАСУ ────────────────────────────
-
 class TimelineWidget(QWidget):
-    """Вертикальна шкала доби 00:00–24:00 з блоками подій."""
 
     def __init__(self, on_click=None):
         super().__init__()
@@ -138,11 +106,7 @@ class TimelineWidget(QWidget):
 
         p.end()
 
-
-# ──────────────────────────── ДІАЛОГ ПОДІЇ ────────────────────────────
-
 class EventDialog(QDialog):
-    """Діалог створення/редагування події."""
 
     def __init__(self, parent=None, event: dict = None):
         super().__init__(parent)
@@ -215,9 +179,6 @@ class EventDialog(QDialog):
             "time": f"{t.hour():02d}:{t.minute():02d}",
             "duration": self.dur_input.value(),
         }
-
-
-# ──────────────────────────── ЕКРАН ПЛАНУВАЛЬНИКА ────────────────────────────
 
 class PlannerScreen(QWidget):
     def __init__(self, pm: PlannerManager):

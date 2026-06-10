@@ -1,10 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-UI трекера — ручний/авто трекінг, статистика, налаштування, довідка.
-"""
-
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import psutil
 from PyQt6.QtWidgets import (
@@ -16,11 +10,11 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QPainter
 
 from styles import STYLE, CATEGORY_COLORS
-from tools.common import fmt_time, fmt_timer, clear_layout, section_label, icon_btn
+from tools.common import (
+    fmt_time, fmt_timer, clear_layout, section_label, icon_btn,
+    is_autostart_enabled, set_autostart, format_date_ua,
+)
 from .manager import DataManager
-
-
-# ──────────────────────────── ВІДЖЕТ ПРОГРЕС-БАР ────────────────────────────
 
 class BarWidget(QWidget):
     def __init__(self, ratio: float, color: str):
@@ -40,8 +34,6 @@ class BarWidget(QWidget):
             p.setBrush(self._color)
             p.drawRoundedRect(0, 0, fw, 8, 4, 4)
         p.end()
-
-# ──────────────────────────── КАРТКА КАТЕГОРІЇ ────────────────────────────
 
 class CategoryCard(QFrame):
     def __init__(self, category: dict, seconds: int, active: bool = False):
@@ -69,14 +61,12 @@ class CategoryCard(QFrame):
         time_lbl.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: 500; border: none;")
         lay.addWidget(time_lbl)
 
-# ──────────────────────────── ЕКРАН ТРЕКЕРА ────────────────────────────
-
 class TrackerScreen(QWidget):
     def __init__(self, dm: DataManager, on_global_refresh=None):
         super().__init__()
         self.dm = dm
         self._on_global_refresh = on_global_refresh
-        self._auto_active = False  # True лише коли сесію запустив авто-трекер
+        self._auto_active = False
         self._setup_ui()
         self._tick = QTimer()
         self._tick.timeout.connect(self._update_timer)
@@ -87,7 +77,6 @@ class TrackerScreen(QWidget):
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(10)
 
-        # Перемикач вкладок
         tab_row = QHBoxLayout()
         tab_row.setSpacing(6)
         self._tab_btns: list[QPushButton] = []
@@ -134,7 +123,6 @@ class TrackerScreen(QWidget):
             self._stats_page.refresh()
         elif idx == 3:
             self._settings_page.refresh()
-        # idx == 4: сторінка допомоги, оновлення не потрібне
 
     def _build_help_page(self) -> QWidget:
         outer = QWidget()
@@ -276,12 +264,6 @@ class TrackerScreen(QWidget):
         lay.setContentsMargins(0, 4, 0, 0)
         lay.setSpacing(10)
 
-        self._auto_status = QLabel("Автовідстеження не активне")
-        self._auto_status.setStyleSheet(
-            "color: #8E8E93; font-size: 12px; background: #2C2C2E; border-radius: 8px; padding: 8px 12px;"
-        )
-        lay.addWidget(self._auto_status)
-
         lay.addWidget(section_label("ПРОГРАМИ"))
         self._auto_map_widget = QWidget()
         self._auto_map_layout = QVBoxLayout(self._auto_map_widget)
@@ -325,19 +307,6 @@ class TrackerScreen(QWidget):
         self._auto_cat_combo.clear()
         for cat in self.dm.categories:
             self._auto_cat_combo.addItem(cat["name"])
-        if self.dm.active_session and self._auto_active:
-            cat = self.dm.get_category(self.dm.active_session["category_id"])
-            name  = cat["name"]  if cat else "?"
-            color = cat["color"] if cat else "#888"
-            self._auto_status.setText(f"Зараз відстежується: {name}")
-            self._auto_status.setStyleSheet(
-                f"color: {color}; font-size: 12px; background: #2C2C2E; border-radius: 8px; padding: 8px 12px;"
-            )
-        else:
-            self._auto_status.setText("Автовідстеження не активне")
-            self._auto_status.setStyleSheet(
-                "color: #8E8E93; font-size: 12px; background: #2C2C2E; border-radius: 8px; padding: 8px 12px;"
-            )
 
     def _auto_map_row(self, m: dict) -> QWidget:
         cat = self.dm.get_category(m["category_id"])
@@ -405,7 +374,6 @@ class TrackerScreen(QWidget):
         dlg.exec()
 
     def refresh(self):
-        # Оновлюємо випадаючий список
         prev_idx = self._combo.currentIndex()
         self._combo.clear()
         self._combo.addItem("Оберіть категорію…")
@@ -414,14 +382,12 @@ class TrackerScreen(QWidget):
         if 0 < prev_idx <= len(self.dm.categories):
             self._combo.setCurrentIndex(prev_idx)
 
-        # Оновлюємо картки категорій
         clear_layout(self._cards_grid)
         active_cid = self.dm.active_session["category_id"] if self.dm.active_session else None
         for i, cat in enumerate(self.dm.categories):
             card = CategoryCard(cat, self.dm.get_today_time(cat["id"]), cat["id"] == active_cid)
             self._cards_grid.addWidget(card, i // 2, i % 2)
 
-        # Оновлюємо статус таймера
         if self.dm.active_session:
             cat = self.dm.get_category(self.dm.active_session["category_id"])
             self._timer_status.setText(f"{cat['name']} — активно" if cat else "Активно")
@@ -434,7 +400,6 @@ class TrackerScreen(QWidget):
             self._timer_display.setText("00:00:00")
             self._stop_btn.hide()
 
-        # Оновлюємо журнал сесій
         clear_layout(self._journal_layout)
         sessions = self.dm.get_today_sessions()
         if sessions:
@@ -480,7 +445,6 @@ class TrackerScreen(QWidget):
     def auto_start(self, category_id: str):
         if self.dm.active_session and self.dm.active_session["category_id"] == category_id:
             return
-        # Не переривати сесію, запущену вручну
         if self.dm.active_session and not self._auto_active:
             return
         self._auto_active = True
@@ -488,19 +452,17 @@ class TrackerScreen(QWidget):
         self.refresh()
 
     def auto_stop(self):
-        # Зупиняємо лише якщо сесію запустив авто-трекер, а не вручну
         if self.dm.active_session and self._auto_active:
             self._auto_active = False
             self.dm.stop_session()
             self.refresh()
 
-# ──────────────────────────── ЕКРАН СТАТИСТИКИ ────────────────────────────
-
 class StatisticsScreen(QWidget):
     def __init__(self, dm: DataManager):
         super().__init__()
         self.dm = dm
-        self._period = "today"
+        self._period = "day"
+        self._day = date.today()
         self._setup_ui()
 
     def _setup_ui(self):
@@ -508,11 +470,10 @@ class StatisticsScreen(QWidget):
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(12)
 
-        # Перемикач періоду
         sw = QHBoxLayout()
         sw.setSpacing(6)
         self._period_btns: dict[str, QPushButton] = {}
-        for key, label in [("today", "Сьогодні"), ("week", "Тиждень"), ("month", "Місяць")]:
+        for key, label in [("day", "День"), ("week", "Тиждень"), ("month", "Місяць")]:
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setFixedHeight(32)
@@ -523,10 +484,23 @@ class StatisticsScreen(QWidget):
             btn.clicked.connect(lambda _, k=key: self._set_period(k))
             self._period_btns[key] = btn
             sw.addWidget(btn)
-        self._period_btns["today"].setChecked(True)
+        self._period_btns["day"].setChecked(True)
         root.addLayout(sw)
 
-        # Картки підсумку
+        self._day_nav = QWidget()
+        nav = QHBoxLayout(self._day_nav)
+        nav.setContentsMargins(0, 0, 0, 0)
+        nav.addWidget(icon_btn("◀", self._shift_day, -1))
+        self._day_lbl = QLabel()
+        self._day_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._day_lbl.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: 600;")
+        nav.addWidget(self._day_lbl, 1)
+        nav.addWidget(icon_btn("▶", self._shift_day, 1))
+        today_btn = QPushButton("Сьогодні")
+        today_btn.clicked.connect(self._goto_today)
+        nav.addWidget(today_btn)
+        root.addWidget(self._day_nav)
+
         summary = QHBoxLayout()
         summary.setSpacing(8)
 
@@ -575,8 +549,21 @@ class StatisticsScreen(QWidget):
             btn.setChecked(k == period)
         self.refresh()
 
+    def _shift_day(self, delta: int):
+        self._day += timedelta(days=delta)
+        self.refresh()
+
+    def _goto_today(self):
+        self._day = date.today()
+        self.refresh()
+
     def refresh(self):
-        stats = self.dm.get_period_stats(self._period)
+        self._day_nav.setVisible(self._period == "day")
+        if self._period == "day":
+            self._day_lbl.setText(format_date_ua(self._day))
+            stats = self.dm.get_day_stats(self._day.isoformat())
+        else:
+            stats = self.dm.get_period_stats(self._period)
         total = sum(stats.values())
         self._total_big.setText(fmt_time(total))
 
@@ -614,8 +601,6 @@ class StatisticsScreen(QWidget):
 
         self._bars_layout.addStretch()
 
-# ──────────────────────────── ЕКРАН НАЛАШТУВАНЬ ────────────────────────────
-
 class SettingsScreen(QWidget):
     def __init__(self, dm: DataManager, on_global_refresh):
         super().__init__()
@@ -636,7 +621,6 @@ class SettingsScreen(QWidget):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(14)
 
-        # ─ Категорії ─
         lay.addWidget(section_label("КАТЕГОРІЇ"))
         self._cat_list = QWidget()
         self._cat_ll = QVBoxLayout(self._cat_list)
@@ -660,7 +644,6 @@ class SettingsScreen(QWidget):
         add_row.addWidget(add_cat_btn)
         lay.addLayout(add_row)
 
-        # ─ Загальні ─
         lay.addWidget(section_label("ЗАГАЛЬНЕ"))
         lay.addWidget(self._make_toggle("Запуск при старті системи", "autostart"))
         lay.addWidget(self._make_toggle("Нагадування (якщо таймер не активний)", "reminders"))
@@ -678,7 +661,14 @@ class SettingsScreen(QWidget):
         lbl = QLabel(text)
         lbl.setStyleSheet("color: #FFFFFF; font-size: 13px; background: transparent;")
         cb = QCheckBox()
-        cb.setChecked(self.dm.settings.get(key, False))
+        if key == "autostart":
+            checked = is_autostart_enabled()
+            if self.dm.settings.get(key) != checked:
+                self.dm.settings[key] = checked
+                self.dm.save()
+        else:
+            checked = self.dm.settings.get(key, False)
+        cb.setChecked(checked)
         cb.stateChanged.connect(lambda v, k=key: self._toggle(k, v))
         rl.addWidget(lbl)
         rl.addStretch()
@@ -686,8 +676,11 @@ class SettingsScreen(QWidget):
         return w
 
     def _toggle(self, key: str, value: int):
-        self.dm.settings[key] = bool(value)
+        value = bool(value)
+        self.dm.settings[key] = value
         self.dm.save()
+        if key == "autostart":
+            set_autostart(value)
 
     def _pick_color(self):
         c = QColorDialog.getColor(QColor(self._sel_color), self)
@@ -771,9 +764,6 @@ class SettingsScreen(QWidget):
         rl.addWidget(edit_btn)
         rl.addWidget(del_btn)
         return w
-
-
-# ──────────────────────────── ДОПОМІЖНІ ФУНКЦІЇ ────────────────────────────
 
 def _journal_row(cat: dict, session: dict) -> QWidget:
     w = QWidget()

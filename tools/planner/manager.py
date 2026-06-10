@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Менеджер даних планувальника: події дня та виявлення конфліктів за часом.
-"""
-
 import json
 import os
 import uuid
@@ -12,22 +6,13 @@ from tools.common import DATA_DIR
 
 DATA_FILE = DATA_DIR / "planner.json"
 
-
-# ──────────────────────────── ЧАС ────────────────────────────
-
 def time_to_minutes(time_str: str) -> int:
-    """'HH:MM' → кількість хвилин від початку доби."""
     h, m = map(int, time_str.split(":"))
     return h * 60 + m
 
-
 def minutes_to_time(minutes: int) -> str:
-    """Кількість хвилин від початку доби → 'HH:MM' (з переносом через північ)."""
     minutes %= 24 * 60
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
-
-
-# ──────────────────────────── МЕНЕДЖЕР ────────────────────────────
 
 class PlannerManager:
     def __init__(self):
@@ -56,10 +41,7 @@ class PlannerManager:
     def _default(self) -> dict:
         return {"events": []}
 
-    # ── Події ──
-
     def events_for_date(self, date_str: str) -> list:
-        """Усі події на дату (YYYY-MM-DD), відсортовані за часом початку."""
         return sorted(
             (e for e in self.data["events"] if e["date"] == date_str),
             key=lambda e: time_to_minutes(e["time"]),
@@ -95,7 +77,6 @@ class PlannerManager:
 
     @staticmethod
     def find_conflicts(events: list) -> set:
-        """Повертає множину id подій, що перетинаються в часі з іншою подією."""
         conflicts = set()
         ranges = []
         for e in events:

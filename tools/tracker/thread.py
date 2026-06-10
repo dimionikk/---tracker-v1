@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Фоновий потік відстеження активного вікна.
-"""
-
 import sys
 import time
 import subprocess
@@ -11,9 +5,8 @@ import subprocess
 import psutil
 from PyQt6.QtCore import QThread, pyqtSignal
 
-
 class WindowTrackerThread(QThread):
-    window_changed = pyqtSignal(str, str)   # назва_процесу, заголовок
+    window_changed = pyqtSignal(str, str)
 
     def __init__(self):
         super().__init__()

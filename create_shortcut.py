@@ -1,6 +1,3 @@
-"""
-Run once — creates a "Tracker" shortcut on the Desktop (pinnable to taskbar).
-"""
 import os
 import subprocess
 
@@ -11,7 +8,6 @@ ico  = os.path.join(here, "icon.ico")
 def ps(path):
     return path.replace("\\", "\\\\")
 
-# Target must be wscript.exe (a real .exe) so Windows allows pinning to taskbar
 script = f"""
 $wscript  = "$env:SystemRoot\\System32\\wscript.exe"
 $desktop  = [Environment]::GetFolderPath('Desktop')

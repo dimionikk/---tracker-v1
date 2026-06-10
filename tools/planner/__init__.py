@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Інструмент «Плани» — денний планувальник: шкала часу, конфлікти,
-нагадування в треї за 10 хвилин до події.
-"""
-
 from datetime import datetime
 
 from PyQt6.QtCore import QTimer
@@ -13,9 +6,8 @@ from tools.base import BaseTool
 from .manager import PlannerManager, time_to_minutes
 from .screen import PlannerScreen
 
-REMINDER_LEAD_MIN = 10       # за скільки хвилин до події нагадувати
-CHECK_INTERVAL_MS = 30_000   # як часто перевіряти події (30 с)
-
+REMINDER_LEAD_MIN = 10
+CHECK_INTERVAL_MS = 30_000
 
 class PlannerTool(BaseTool):
     TITLE = "Плани"
@@ -26,7 +18,7 @@ class PlannerTool(BaseTool):
         self._screen: PlannerScreen | None = None
         self._timer: QTimer | None = None
         self._notify = None
-        self._notified = set()  # {(date_str, event_id)} — щоб не нагадувати двічі
+        self._notified = set()
 
     def build_widget(self):
         self._screen = PlannerScreen(self.pm)
@@ -50,7 +42,6 @@ class PlannerTool(BaseTool):
         today_str = now.date().isoformat()
         now_min = now.hour * 60 + now.minute
 
-        # Прибираємо позначки за минулі дні
         self._notified = {k for k in self._notified if k[0] == today_str}
 
         for e in self.pm.events_for_date(today_str):
