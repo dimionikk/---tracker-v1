@@ -51,4 +51,4 @@ If Not PythonExists() Then
 End If
 
 ' ── Python є — запускаємо (залежності встановляться автоматично) ──────────
-shell.Run "pythonw """ & dir & "\tracker.pyw""", 1
+shell.Run "pythonw """ & dir & "\main.pyw""", 1

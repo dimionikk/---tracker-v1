@@ -1,373 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Трекер активності — PyQt6
+UI трекера — ручний/авто трекінг, статистика, налаштування, довідка.
 """
 
-# ── Автоматична перевірка та встановлення залежностей ──────────────────
-import sys, importlib.util, subprocess as _sp, os as _os
-
-_DEPS = [
-    ("PyQt6",    "PyQt6"),
-    ("psutil",   "psutil"),
-    ("win32gui", "pywin32"),
-]
-_missing = [pkg for mod, pkg in _DEPS if importlib.util.find_spec(mod) is None]
-
-if _missing:
-    try:
-        import tkinter as _tk
-        from tkinter import ttk as _ttk
-        _root = _tk.Tk()
-        _root.title("Трекер — встановлення")
-        _root.geometry("340x90")
-        _root.resizable(False, False)
-        _root.eval("tk::PlaceWindow . center")
-        _tk.Label(
-            _root,
-            text=f"Встановлення залежностей: {', '.join(_missing)}",
-            font=("Arial", 10),
-        ).pack(pady=(12, 4))
-        _bar = _ttk.Progressbar(_root, mode="indeterminate", length=280)
-        _bar.pack()
-        _bar.start(12)
-        _root.update()
-        _sp.check_call(
-            [sys.executable, "-m", "pip", "install", "--quiet", *_missing],
-            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-        )
-        _root.destroy()
-    except Exception:
-        # Якщо tkinter недоступний — встановлюємо тихо
-        _sp.check_call(
-            [sys.executable, "-m", "pip", "install", "--quiet", *_missing],
-            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-        )
-    # Перезапускаємо з вже встановленими залежностями
-    _os.execv(sys.executable, [sys.executable] + sys.argv)
-# ───────────────────────────────────────────────────────────────────────
-
-import sys
-import json
-import os
-import uuid
-import time
-import subprocess
-from datetime import datetime, timedelta, date
-from pathlib import Path
+from datetime import datetime
 
 import psutil
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QGridLayout, QLabel, QPushButton, QComboBox, QScrollArea, QFrame,
-    QStackedWidget, QSystemTrayIcon, QMenu, QCheckBox, QLineEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
+    QComboBox, QScrollArea, QFrame, QStackedWidget, QCheckBox, QLineEdit,
     QDialog, QListWidget, QMessageBox, QColorDialog
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QPixmap, QPainter
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor, QPainter
 
-# ──────────────────────────── КОНСТАНТИ ────────────────────────────
+from styles import STYLE, CATEGORY_COLORS
+from tools.common import fmt_time, fmt_timer, clear_layout, section_label, icon_btn
+from .manager import DataManager
 
-DATA_FILE = Path(os.path.dirname(os.path.abspath(__file__))) / "tracker_data.json"
-
-CATEGORY_COLORS = [
-    '#7B6CF6', '#4CAF50', '#2196F3', '#FF9800',
-    '#FF453A', '#00BCD4', '#E91E63', '#9C27B0'
-]
-
-STYLE = """
-QWidget {
-    background-color: #1C1C1E;
-    color: #FFFFFF;
-    font-family: 'Segoe UI', Arial, sans-serif;
-    font-size: 13px;
-}
-QScrollArea { border: none; background: transparent; }
-QScrollBar:vertical {
-    background: #2C2C2E; width: 5px; border-radius: 2px;
-}
-QScrollBar::handle:vertical { background: #48484A; border-radius: 2px; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-
-QPushButton {
-    background-color: #3A3A3C; color: #FFFFFF;
-    border: none; border-radius: 10px; padding: 8px 16px;
-}
-QPushButton:hover { background-color: #48484A; }
-QPushButton:pressed { background-color: #636366; }
-QPushButton#accentBtn { background-color: #7B6CF6; }
-QPushButton#accentBtn:hover { background-color: #8E7FF8; }
-QPushButton#stopBtn {
-    background-color: #2C1C1C; color: #FF453A;
-    border: 1px solid #FF453A; border-radius: 10px;
-}
-QPushButton#stopBtn:hover { background-color: #FF453A; color: #FFFFFF; }
-
-QComboBox {
-    background-color: #2C2C2E; color: #FFFFFF;
-    border: 1px solid #3A3A3C; border-radius: 10px; padding: 8px 12px;
-}
-QComboBox::drop-down { border: none; width: 20px; }
-QComboBox QAbstractItemView {
-    background-color: #2C2C2E; color: #FFFFFF;
-    border: 1px solid #3A3A3C;
-    selection-background-color: #3A3A3C;
-}
-QLineEdit {
-    background-color: #2C2C2E; color: #FFFFFF;
-    border: 1px solid #3A3A3C; border-radius: 8px; padding: 6px 10px;
-}
-QLineEdit:focus { border-color: #7B6CF6; }
-QLabel { background: transparent; }
-
-QCheckBox::indicator {
-    width: 40px; height: 24px; border-radius: 12px;
-    background-color: #3A3A3C;
-}
-QCheckBox::indicator:checked { background-color: #7B6CF6; }
-
-QListWidget {
-    background: #2C2C2E; border-radius: 8px;
-    border: 1px solid #3A3A3C;
-}
-QListWidget::item { padding: 6px; }
-QListWidget::item:selected { background: #3A3A3C; }
-
-QDialog { background: #1C1C1E; }
-QMenu {
-    background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 8px;
-}
-QMenu::item { padding: 8px 16px; }
-QMenu::item:selected { background: #3A3A3C; }
-"""
-
-# ──────────────────────────── ДОПОМІЖНІ ФУНКЦІЇ ────────────────────────────
-
-def fmt_time(seconds: int) -> str:
-    h = seconds // 3600
-    m = (seconds % 3600) // 60
-    s = seconds % 60
-    return f"{h}г {m:02d}хв {s:02d}с"
-
-def fmt_timer(seconds: int) -> str:
-    h = seconds // 3600
-    m = (seconds % 3600) // 60
-    s = seconds % 60
-    return f"{h:02d}:{m:02d}:{s:02d}"
-
-# ──────────────────────────── МЕНЕДЖЕР ДАНИХ ────────────────────────────
-
-class DataManager:
-    def __init__(self):
-        self.data = self._load()
-
-    def _load(self) -> dict:
-        if DATA_FILE.exists():
-            try:
-                with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                defaults = self._default()
-                for key in defaults:
-                    if key not in data:
-                        data[key] = defaults[key]
-                # Видаляємо сесії старші за 180 днів
-                cutoff = (datetime.now() - timedelta(days=180)).isoformat()
-                data['sessions'] = [s for s in data.get('sessions', [])
-                                    if s.get('start', '') >= cutoff]
-                return data
-            except Exception:
-                pass
-        return self._default()
-
-    def save(self):
-        tmp = DATA_FILE.with_suffix('.tmp')
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2, default=str)
-        os.replace(tmp, DATA_FILE)
-
-    def _default(self) -> dict:
-        return {
-            "categories": [
-                {"id": "study",   "name": "Навчання", "color": "#7B6CF6"},
-                {"id": "games",   "name": "Ігри",      "color": "#4CAF50"},
-                {"id": "work",    "name": "Робота",    "color": "#2196F3"},
-                {"id": "leisure", "name": "Дозвілля",  "color": "#FF9800"},
-            ],
-            "app_mappings": [],
-            "sessions": [],
-            "settings": {"autostart": False, "reminders": False},
-            "active_session": None,
-        }
-
-    # ── Скорочення ──
-    @property
-    def categories(self) -> list:
-        return self.data["categories"]
-
-    @property
-    def sessions(self) -> list:
-        return self.data["sessions"]
-
-    @property
-    def app_mappings(self) -> list:
-        return self.data["app_mappings"]
-
-    @property
-    def settings(self) -> dict:
-        return self.data["settings"]
-
-    @property
-    def active_session(self) -> dict | None:
-        return self.data.get("active_session")
-
-    # ── Допоміжні методи категорій ──
-    def get_category(self, cat_id: str) -> dict | None:
-        return next((c for c in self.categories if c["id"] == cat_id), None)
-
-    def add_category(self, name: str, color: str):
-        self.categories.append({"id": str(uuid.uuid4()), "name": name, "color": color})
-        self.save()
-
-    def remove_category(self, cat_id: str):
-        if self.active_session and self.active_session["category_id"] == cat_id:
-            self._commit_active()
-        self.data["categories"] = [c for c in self.categories if c["id"] != cat_id]
-        self.data["app_mappings"] = [m for m in self.app_mappings if m["category_id"] != cat_id]
-        self.save()
-
-    # ── Допоміжні методи прив'язок програм ──
-    def get_category_for_process(self, process_name: str) -> str | None:
-        pl = process_name.lower()
-        for m in self.app_mappings:
-            if m["process"].lower() == pl:
-                return m["category_id"]
-        return None
-
-    def add_mapping(self, process: str, category_id: str):
-        # Замінюємо наявну прив'язку для того ж процесу, якщо є
-        self.data["app_mappings"] = [m for m in self.app_mappings if m["process"].lower() != process.lower()]
-        self.app_mappings.append({"process": process, "category_id": category_id})
-        self.save()
-
-    def remove_mapping(self, process: str):
-        self.data["app_mappings"] = [m for m in self.app_mappings if m["process"] != process]
-        self.save()
-
-    # ── Допоміжні методи сесій ──
-    def start_session(self, category_id: str) -> dict:
-        if self.active_session:
-            self._commit_active()
-        session = {
-            "id": str(uuid.uuid4()),
-            "category_id": category_id,
-            "start": datetime.now().isoformat(),
-            "end": None,
-            "duration": 0,
-        }
-        self.data["active_session"] = session
-        self.save()
-        return session
-
-    def stop_session(self) -> dict | None:
-        if not self.active_session:
-            return None
-        return self._commit_active()
-
-    def _commit_active(self) -> dict:
-        s = self.active_session
-        end = datetime.now()
-        start = datetime.fromisoformat(s["start"])
-        s["end"] = end.isoformat()
-        s["duration"] = max(1, int((end - start).total_seconds()))
-        self.sessions.append(s)
-        self.data["active_session"] = None
-        self.save()
-        return s
-
-    # ── Статистика ──
-    def get_today_time(self, category_id: str) -> int:
-        today = date.today().isoformat()
-        total = sum(
-            s["duration"] for s in self.sessions
-            if s["category_id"] == category_id
-            and s["start"][:10] == today
-            and s.get("end")
-        )
-        if self.active_session and self.active_session["category_id"] == category_id:
-            start = datetime.fromisoformat(self.active_session["start"])
-            total += int((datetime.now() - start).total_seconds())
-        return total
-
-    def get_period_stats(self, period: str) -> dict:
-        now = datetime.now()
-        if period == "today":
-            cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif period == "week":
-            cutoff = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-        else:
-            cutoff = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-        stats = {c["id"]: 0 for c in self.categories}
-        for s in self.sessions:
-            if s.get("end") and datetime.fromisoformat(s["start"]) >= cutoff:
-                cid = s["category_id"]
-                stats[cid] = stats.get(cid, 0) + s["duration"]
-        if self.active_session:
-            s = self.active_session
-            if datetime.fromisoformat(s["start"]) >= cutoff:
-                start = datetime.fromisoformat(s["start"])
-                cid = s["category_id"]
-                stats[cid] = stats.get(cid, 0) + int((datetime.now() - start).total_seconds())
-        return stats
-
-    def get_today_sessions(self) -> list:
-        today = date.today().isoformat()
-        result = [s for s in self.sessions if s["start"][:10] == today and s.get("end")]
-        result.sort(key=lambda s: s["start"], reverse=True)
-        return result
-
-# ──────────────────────────── ПОТІК ВІДСТЕЖЕННЯ ВІКОН ────────────────────────────
-
-class WindowTrackerThread(QThread):
-    window_changed = pyqtSignal(str, str)   # назва_процесу, заголовок
-
-    def __init__(self):
-        super().__init__()
-        self._running = True
-        self._last_process = ""
-
-    def _get_active(self):
-        try:
-            if sys.platform == "win32":
-                import win32gui
-                import win32process
-                hwnd = win32gui.GetForegroundWindow()
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                title = win32gui.GetWindowText(hwnd)
-                return psutil.Process(pid).name(), title
-            else:
-                pid = subprocess.check_output(
-                    ["xdotool", "getactivewindow", "getwindowpid"],
-                    stderr=subprocess.DEVNULL, timeout=2
-                ).decode().strip()
-                title = subprocess.check_output(
-                    ["xdotool", "getactivewindow", "getwindowname"],
-                    stderr=subprocess.DEVNULL, timeout=2
-                ).decode().strip()
-                return psutil.Process(int(pid)).name(), title
-        except Exception:
-            return None, None
-
-    def run(self):
-        while self._running:
-            proc, title = self._get_active()
-            if proc and proc != self._last_process:
-                self._last_process = proc
-                self.window_changed.emit(proc, title or "")
-            time.sleep(3)
-
-    def stop(self):
-        self._running = False
 
 # ──────────────────────────── ВІДЖЕТ ПРОГРЕС-БАР ────────────────────────────
 
@@ -631,7 +282,7 @@ class TrackerScreen(QWidget):
         )
         lay.addWidget(self._auto_status)
 
-        lay.addWidget(_section_label("ПРОГРАМИ"))
+        lay.addWidget(section_label("ПРОГРАМИ"))
         self._auto_map_widget = QWidget()
         self._auto_map_layout = QVBoxLayout(self._auto_map_widget)
         self._auto_map_layout.setContentsMargins(0, 0, 0, 0)
@@ -641,7 +292,7 @@ class TrackerScreen(QWidget):
         scroll.setWidgetResizable(True)
         lay.addWidget(scroll)
 
-        lay.addWidget(_section_label("ДОДАТИ"))
+        lay.addWidget(section_label("ДОДАТИ"))
         add_row = QHBoxLayout()
         self._auto_proc_input = QLineEdit()
         self._auto_proc_input.setPlaceholderText("Назва процесу (напр. chrome.exe)")
@@ -663,7 +314,7 @@ class TrackerScreen(QWidget):
         return page
 
     def _refresh_auto(self):
-        _clear_layout(self._auto_map_layout)
+        clear_layout(self._auto_map_layout)
         for m in self.dm.app_mappings:
             self._auto_map_layout.addWidget(self._auto_map_row(m))
         if not self.dm.app_mappings:
@@ -764,7 +415,7 @@ class TrackerScreen(QWidget):
             self._combo.setCurrentIndex(prev_idx)
 
         # Оновлюємо картки категорій
-        _clear_layout(self._cards_grid)
+        clear_layout(self._cards_grid)
         active_cid = self.dm.active_session["category_id"] if self.dm.active_session else None
         for i, cat in enumerate(self.dm.categories):
             card = CategoryCard(cat, self.dm.get_today_time(cat["id"]), cat["id"] == active_cid)
@@ -784,7 +435,7 @@ class TrackerScreen(QWidget):
             self._stop_btn.hide()
 
         # Оновлюємо журнал сесій
-        _clear_layout(self._journal_layout)
+        clear_layout(self._journal_layout)
         sessions = self.dm.get_today_sessions()
         if sessions:
             for s in sessions[:30]:
@@ -806,7 +457,7 @@ class TrackerScreen(QWidget):
             secs = int((datetime.now() - start).total_seconds())
             self._timer_display.setText(fmt_timer(secs))
             if secs % 60 == 0:
-                _clear_layout(self._cards_grid)
+                clear_layout(self._cards_grid)
                 active_cid = self.dm.active_session["category_id"]
                 for i, cat in enumerate(self.dm.categories):
                     card = CategoryCard(cat, self.dm.get_today_time(cat["id"]), cat["id"] == active_cid)
@@ -936,7 +587,7 @@ class StatisticsScreen(QWidget):
         else:
             self._top_big.setText("—")
 
-        _clear_layout(self._bars_layout)
+        clear_layout(self._bars_layout)
         max_val = max(stats.values(), default=1) or 1
         for cat in self.dm.categories:
             secs = stats.get(cat["id"], 0)
@@ -986,7 +637,7 @@ class SettingsScreen(QWidget):
         lay.setSpacing(14)
 
         # ─ Категорії ─
-        lay.addWidget(_section_label("КАТЕГОРІЇ"))
+        lay.addWidget(section_label("КАТЕГОРІЇ"))
         self._cat_list = QWidget()
         self._cat_ll = QVBoxLayout(self._cat_list)
         self._cat_ll.setContentsMargins(0, 0, 0, 0)
@@ -1010,7 +661,7 @@ class SettingsScreen(QWidget):
         lay.addLayout(add_row)
 
         # ─ Загальні ─
-        lay.addWidget(_section_label("ЗАГАЛЬНЕ"))
+        lay.addWidget(section_label("ЗАГАЛЬНЕ"))
         lay.addWidget(self._make_toggle("Запуск при старті системи", "autostart"))
         lay.addWidget(self._make_toggle("Нагадування (якщо таймер не активний)", "reminders"))
 
@@ -1099,7 +750,7 @@ class SettingsScreen(QWidget):
             self._on_refresh()
 
     def refresh(self):
-        _clear_layout(self._cat_ll)
+        clear_layout(self._cat_ll)
         for cat in self.dm.categories:
             self._cat_ll.addWidget(self._cat_row(cat))
 
@@ -1112,8 +763,8 @@ class SettingsScreen(QWidget):
         dot.setStyleSheet(f"color: {cat['color']}; font-size: 14px; background: transparent;")
         name = QLabel(cat["name"])
         name.setStyleSheet("color: #FFFFFF; font-size: 13px; background: transparent;")
-        edit_btn = _icon_btn("✎", self._edit_category, cat)
-        del_btn  = _icon_btn("✕", self._delete_category, cat, danger=True)
+        edit_btn = icon_btn("✎", self._edit_category, cat)
+        del_btn  = icon_btn("✕", self._delete_category, cat, danger=True)
         rl.addWidget(dot)
         rl.addWidget(name)
         rl.addStretch()
@@ -1121,107 +772,8 @@ class SettingsScreen(QWidget):
         rl.addWidget(del_btn)
         return w
 
-# ──────────────────────────── ГОЛОВНЕ ВІКНО ────────────────────────────
 
-class MainWindow(QMainWindow):
-    def __init__(self, dm: DataManager):
-        super().__init__()
-        self.dm = dm
-        self.setWindowTitle("Трекер")
-        self.setMinimumSize(440, 620)
-        self.resize(480, 720)
-        self.setStyleSheet(STYLE)
-        self._setup_ui()
-        self._setup_tray()
-        self._start_tracker()
-
-    def _setup_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        ml = QVBoxLayout(central)
-        ml.setContentsMargins(0, 0, 0, 0)
-        ml.setSpacing(0)
-
-        # Заголовок
-        header = QWidget()
-        header.setFixedHeight(52)
-        header.setStyleSheet("background: #2C2C2E;")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(16, 0, 16, 0)
-        title_lbl = QLabel("Трекер")
-        title_lbl.setStyleSheet("color: #FFFFFF; font-size: 17px; font-weight: 600;")
-        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hl.addWidget(title_lbl)
-        ml.addWidget(header)
-
-        self._tracker = TrackerScreen(self.dm)
-        ml.addWidget(self._tracker)
-
-
-    def _setup_tray(self):
-        icon_path = Path(os.path.dirname(os.path.abspath(__file__))) / "icon.ico"
-        app_icon = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
-        self.setWindowIcon(app_icon)
-        self._tray = QSystemTrayIcon(app_icon, self)
-        self._tray.setToolTip("Tracker")
-        menu = QMenu()
-        menu.addAction("Відкрити", self.show)
-        menu.addAction("Вийти", QApplication.instance().quit)
-        self._tray.setContextMenu(menu)
-        self._tray.activated.connect(
-            lambda r: self.show() if r == QSystemTrayIcon.ActivationReason.Trigger else None
-        )
-        self._tray.show()
-
-    def _start_tracker(self):
-        self._wt = WindowTrackerThread()
-        self._wt.window_changed.connect(self._on_window)
-        self._wt.start()
-        QApplication.instance().aboutToQuit.connect(self._stop_tracker)
-
-    def _stop_tracker(self):
-        self._wt.stop()
-        self._wt.wait(2000)
-
-    def _on_window(self, proc: str, _title: str):
-        cat_id = self.dm.get_category_for_process(proc)
-        if cat_id:
-            self._tracker.auto_start(cat_id)
-        else:
-            self._tracker.auto_stop()
-
-    def closeEvent(self, event):
-        event.ignore()
-        self.hide()
-        self._tray.showMessage(
-            "Tracker", "Згорнуто в трей. ПКМ по іконці -> Вийти.",
-            QSystemTrayIcon.MessageIcon.Information, 2500
-        )
-
-
-# ──────────────────────────── УТИЛІТАРНІ ФУНКЦІЇ ────────────────────────────
-
-def _clear_layout(layout):
-    while layout.count():
-        item = layout.takeAt(0)
-        if item.widget():
-            item.widget().deleteLater()
-
-
-def _section_label(text: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setStyleSheet("color: #8E8E93; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
-    return lbl
-
-
-def _icon_btn(icon: str, callback, data, danger: bool = False) -> QPushButton:
-    btn = QPushButton(icon)
-    btn.setFixedSize(28, 28)
-    color = "#FF453A" if danger else "#FFFFFF"
-    btn.setStyleSheet(f"background: #3A3A3C; border-radius: 6px; color: {color}; font-size: 14px;")
-    btn.clicked.connect(lambda: callback(data))
-    return btn
-
+# ──────────────────────────── ДОПОМІЖНІ ФУНКЦІЇ ────────────────────────────
 
 def _journal_row(cat: dict, session: dict) -> QWidget:
     w = QWidget()
@@ -1246,29 +798,3 @@ def _journal_row(cat: dict, session: dict) -> QWidget:
     rl.addStretch()
     rl.addWidget(dur)
     return w
-
-
-# ──────────────────────────── ТОЧКА ВХОДУ ────────────────────────────
-
-# Блокування одного екземпляра — тримається весь час роботи процесу
-import socket as _socket
-_lock_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-try:
-    _lock_sock.bind(('127.0.0.1', 47291))
-except OSError:
-    import sys as _sys
-    _sys.exit(0)
-
-
-def main():
-    app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)
-    app.setApplicationName("Tracker")
-    dm = DataManager()
-    win = MainWindow(dm)
-    win.show()
-    sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()
