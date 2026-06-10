@@ -1,3 +1,4 @@
+import calendar
 from datetime import date, datetime, timedelta
 
 import psutil
@@ -15,6 +16,17 @@ from tools.common import (
     is_autostart_enabled, set_autostart, format_date_ua,
 )
 from .manager import DataManager
+
+_WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
+
+def _fmt_compact(seconds: int) -> str:
+    if seconds <= 0:
+        return "—"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    if h:
+        return f"{h}г {m:02d}хв" if m else f"{h}г"
+    return f"{m}хв"
 
 class BarWidget(QWidget):
     def __init__(self, ratio: float, color: str):
@@ -457,6 +469,40 @@ class TrackerScreen(QWidget):
             self.dm.stop_session()
             self.refresh()
 
+class DayCell(QFrame):
+    def __init__(self, day: date, seconds: int, is_today: bool, on_click):
+        super().__init__()
+        self._day = day
+        self._on_click = on_click
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        border = "#7B6CF6" if is_today else "#3A3A3C"
+        self.setStyleSheet(
+            f"QFrame {{ background: #2C2C2E; border-radius: 10px; border: 1.5px solid {border}; }}"
+        )
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 8, 4, 8)
+        lay.setSpacing(4)
+
+        wd = QLabel(_WEEKDAY_SHORT[day.weekday()])
+        wd.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        wd.setStyleSheet("color: #8E8E93; font-size: 10px; border: none;")
+        lay.addWidget(wd)
+
+        num = QLabel(str(day.day))
+        num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        num.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 600; border: none;")
+        lay.addWidget(num)
+
+        t = QLabel(_fmt_compact(seconds))
+        t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t.setStyleSheet("color: #7B6CF6; font-size: 10px; font-weight: 600; border: none;")
+        lay.addWidget(t)
+
+    def mousePressEvent(self, event):
+        if self._on_click:
+            self._on_click(self._day)
+        super().mousePressEvent(event)
+
 class StatisticsScreen(QWidget):
     def __init__(self, dm: DataManager):
         super().__init__()
@@ -500,6 +546,18 @@ class StatisticsScreen(QWidget):
         today_btn.clicked.connect(self._goto_today)
         nav.addWidget(today_btn)
         root.addWidget(self._day_nav)
+
+        self._week_grid = QWidget()
+        self._week_grid_layout = QHBoxLayout(self._week_grid)
+        self._week_grid_layout.setContentsMargins(0, 0, 0, 0)
+        self._week_grid_layout.setSpacing(6)
+        root.addWidget(self._week_grid)
+
+        self._month_grid = QWidget()
+        self._month_grid_layout = QGridLayout(self._month_grid)
+        self._month_grid_layout.setContentsMargins(0, 0, 0, 0)
+        self._month_grid_layout.setSpacing(4)
+        root.addWidget(self._month_grid)
 
         summary = QHBoxLayout()
         summary.setSpacing(8)
@@ -559,11 +617,18 @@ class StatisticsScreen(QWidget):
 
     def refresh(self):
         self._day_nav.setVisible(self._period == "day")
+        self._week_grid.setVisible(self._period == "week")
+        self._month_grid.setVisible(self._period == "month")
+
         if self._period == "day":
             self._day_lbl.setText(format_date_ua(self._day))
             stats = self.dm.get_day_stats(self._day.isoformat())
+        elif self._period == "week":
+            self._refresh_week_grid()
+            stats = self.dm.get_period_stats("week")
         else:
-            stats = self.dm.get_period_stats(self._period)
+            self._refresh_month_grid()
+            stats = self.dm.get_period_stats("month")
         total = sum(stats.values())
         self._total_big.setText(fmt_time(total))
 
@@ -574,7 +639,10 @@ class StatisticsScreen(QWidget):
         else:
             self._top_big.setText("—")
 
-        clear_layout(self._bars_layout)
+        self._populate_bars(self._bars_layout, stats)
+
+    def _populate_bars(self, layout, stats):
+        clear_layout(layout)
         max_val = max(stats.values(), default=1) or 1
         for cat in self.dm.categories:
             secs = stats.get(cat["id"], 0)
@@ -597,9 +665,77 @@ class StatisticsScreen(QWidget):
             rl.addWidget(name_lbl)
             rl.addWidget(bar, 1)
             rl.addWidget(dur_lbl)
-            self._bars_layout.addWidget(row)
+            layout.addWidget(row)
 
-        self._bars_layout.addStretch()
+        layout.addStretch()
+
+    def _refresh_week_grid(self):
+        clear_layout(self._week_grid_layout)
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        for i in range(7):
+            day = monday + timedelta(days=i)
+            day_stats = self.dm.get_day_stats(day.isoformat())
+            cell = DayCell(day, sum(day_stats.values()), day == today, self._show_day_detail)
+            self._week_grid_layout.addWidget(cell)
+
+    def _refresh_month_grid(self):
+        clear_layout(self._month_grid_layout)
+        today = date.today()
+        first = today.replace(day=1)
+        days_in_month = calendar.monthrange(today.year, today.month)[1]
+
+        for col, label in enumerate(_WEEKDAY_SHORT):
+            lbl = QLabel(label)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet("color: #8E8E93; font-size: 10px; font-weight: 600;")
+            self._month_grid_layout.addWidget(lbl, 0, col)
+
+        row = 1
+        col = first.weekday()
+        for day_num in range(1, days_in_month + 1):
+            day = date(today.year, today.month, day_num)
+            day_stats = self.dm.get_day_stats(day.isoformat())
+            cell = DayCell(day, sum(day_stats.values()), day == today, self._show_day_detail)
+            self._month_grid_layout.addWidget(cell, row, col)
+            col += 1
+            if col > 6:
+                col = 0
+                row += 1
+
+    def _show_day_detail(self, day: date):
+        stats = self.dm.get_day_stats(day.isoformat())
+        total = sum(stats.values())
+
+        dlg = QDialog(self)
+        dlg.setStyleSheet(STYLE)
+        dlg.setWindowTitle(format_date_ua(day))
+        dlg.setMinimumWidth(300)
+
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(10)
+
+        title = QLabel(format_date_ua(day))
+        title.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: 600;")
+        lay.addWidget(title)
+
+        total_lbl = QLabel(f"Всього: {fmt_time(total)}")
+        total_lbl.setStyleSheet("color: #8E8E93; font-size: 12px;")
+        lay.addWidget(total_lbl)
+
+        bars_widget = QWidget()
+        bars_layout = QVBoxLayout(bars_widget)
+        bars_layout.setContentsMargins(0, 0, 0, 0)
+        bars_layout.setSpacing(10)
+        self._populate_bars(bars_layout, stats)
+        lay.addWidget(bars_widget)
+
+        close_btn = QPushButton("Закрити")
+        close_btn.setObjectName("accentBtn")
+        close_btn.clicked.connect(dlg.accept)
+        lay.addWidget(close_btn)
+
+        dlg.exec()
 
 class SettingsScreen(QWidget):
     def __init__(self, dm: DataManager, on_global_refresh):
