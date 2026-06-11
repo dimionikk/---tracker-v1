@@ -39,6 +39,7 @@ if _missing:
 
 import os
 import socket
+import traceback
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -48,12 +49,24 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QIcon
 
 from styles import STYLE
+from tools.logger import log
+from tools.notifications import SettingsManager
 from tools.tracker import TrackerTool
 from tools.planner import PlannerTool
+from tools.settings import SettingsTool
+
+def _log_uncaught(exc_type, exc_value, exc_tb):
+    text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    log("ERROR", f"Необроблена помилка:\n{text}")
+
+sys.excepthook = _log_uncaught
+
+_settings_manager = SettingsManager()
 
 TOOLS = [
     TrackerTool(),
-    PlannerTool(),
+    PlannerTool(_settings_manager),
+    SettingsTool(_settings_manager),
 ]
 
 class Sidebar(QWidget):
@@ -85,8 +98,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Мої інструменти")
-        self.setMinimumSize(520, 620)
-        self.resize(560, 720)
+        self.setMinimumSize(780, 620)
+        self.resize(864, 720)
         self.setStyleSheet(STYLE)
         self._setup_ui()
         self._setup_tray()
@@ -119,6 +132,7 @@ class MainWindow(QMainWindow):
         TOOLS[self._stack.currentIndex()].on_deactivate()
         self._stack.setCurrentIndex(idx)
         TOOLS[idx].on_activate()
+        log("APP", f"Перемкнено інструмент: {TOOLS[idx].TITLE}")
 
     def _setup_tray(self):
         icon_path = Path(os.path.dirname(os.path.abspath(__file__))) / "icon.ico"
@@ -127,17 +141,26 @@ class MainWindow(QMainWindow):
         self._tray = QSystemTrayIcon(app_icon, self)
         self._tray.setToolTip("Мої інструменти")
         menu = QMenu()
-        menu.addAction("Відкрити", self.show)
-        menu.addAction("Вийти", QApplication.instance().quit)
+        menu.addAction("Відкрити", self._show_from_tray)
+        menu.addAction("Вийти", self._quit_app)
         self._tray.setContextMenu(menu)
         self._tray.activated.connect(
-            lambda r: self.show() if r == QSystemTrayIcon.ActivationReason.Trigger else None
+            lambda r: self._show_from_tray() if r == QSystemTrayIcon.ActivationReason.Trigger else None
         )
         self._tray.show()
+
+    def _show_from_tray(self):
+        log("APP", "Вікно відкрито з трею")
+        self.show()
+
+    def _quit_app(self):
+        log("APP", "Вихід з програми (через трей)")
+        QApplication.instance().quit()
 
     def closeEvent(self, event):
         event.ignore()
         self.hide()
+        log("APP", "Вікно згорнуто у трей")
         self._tray.showMessage(
             "Мої інструменти", "Згорнуто в трей. ПКМ по іконці -> Вийти.",
             QSystemTrayIcon.MessageIcon.Information, 2500
@@ -147,9 +170,11 @@ _lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
     _lock_sock.bind(('127.0.0.1', 47291))
 except OSError:
+    log("APP", "Повторний запуск заблоковано — програма вже запущена")
     sys.exit(0)
 
 def main():
+    log("APP", "Програма запущена")
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("Tracker")

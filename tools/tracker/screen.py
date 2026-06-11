@@ -15,6 +15,7 @@ from tools.common import (
     fmt_time, fmt_timer, clear_layout, section_label, icon_btn,
     is_autostart_enabled, set_autostart, format_date_ua,
 )
+from tools.logger import log
 from .manager import DataManager
 
 _WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
@@ -135,6 +136,7 @@ class TrackerScreen(QWidget):
             self._stats_page.refresh()
         elif idx == 3:
             self._settings_page.refresh()
+        log("TRACKER", f"Перемкнено вкладку трекера: {self._tab_btns[idx].text()}")
 
     def _build_help_page(self) -> QWidget:
         outer = QWidget()
@@ -459,12 +461,15 @@ class TrackerScreen(QWidget):
             return
         if self.dm.active_session and not self._auto_active:
             return
+        cat = self.dm.get_category(category_id)
+        log("AUTO", f"Авто-трекер: визначено категорію → {cat['name'] if cat else category_id}")
         self._auto_active = True
         self.dm.start_session(category_id)
         self.refresh()
 
     def auto_stop(self):
         if self.dm.active_session and self._auto_active:
+            log("AUTO", "Авто-трекер: активне вікно поза категоріями — зупиняємо сесію")
             self._auto_active = False
             self.dm.stop_session()
             self.refresh()
@@ -817,6 +822,7 @@ class SettingsScreen(QWidget):
         self.dm.save()
         if key == "autostart":
             set_autostart(value)
+        log("TRACKER", f"Змінено налаштування трекера: {key} = {value}")
 
     def _pick_color(self):
         c = QColorDialog.getColor(QColor(self._sel_color), self)
@@ -853,6 +859,7 @@ class SettingsScreen(QWidget):
         color_btn.clicked.connect(pick)
         save = QPushButton("Зберегти")
         save.setObjectName("accentBtn")
+        old_name = cat["name"]
         def do_save():
             n = name_edit.text().strip()
             if n:
@@ -861,6 +868,7 @@ class SettingsScreen(QWidget):
             self.dm.save()
             self.refresh()
             self._on_refresh()
+            log("TRACKER", f"Відредаговано категорію: {old_name} → {cat['name']}")
             dlg.accept()
         save.clicked.connect(do_save)
         ll.addWidget(QLabel("Назва:"))

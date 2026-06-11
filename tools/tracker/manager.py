@@ -3,7 +3,8 @@ import os
 import uuid
 from datetime import datetime, timedelta, date
 
-from tools.common import DATA_DIR
+from tools.common import DATA_DIR, fmt_time
+from tools.logger import log
 
 DATA_FILE = DATA_DIR / "tracker.json"
 
@@ -74,13 +75,16 @@ class DataManager:
     def add_category(self, name: str, color: str):
         self.categories.append({"id": str(uuid.uuid4()), "name": name, "color": color})
         self.save()
+        log("TRACKER", f"Додано категорію: {name}")
 
     def remove_category(self, cat_id: str):
+        cat = self.get_category(cat_id)
         if self.active_session and self.active_session["category_id"] == cat_id:
             self._commit_active()
         self.data["categories"] = [c for c in self.categories if c["id"] != cat_id]
         self.data["app_mappings"] = [m for m in self.app_mappings if m["category_id"] != cat_id]
         self.save()
+        log("TRACKER", f"Видалено категорію: {cat['name'] if cat else cat_id}")
 
     def get_category_for_process(self, process_name: str) -> str | None:
         pl = process_name.lower()
@@ -93,10 +97,13 @@ class DataManager:
         self.data["app_mappings"] = [m for m in self.app_mappings if m["process"].lower() != process.lower()]
         self.app_mappings.append({"process": process, "category_id": category_id})
         self.save()
+        cat = self.get_category(category_id)
+        log("TRACKER", f"Додано авто-правило: {process} → {cat['name'] if cat else category_id}")
 
     def remove_mapping(self, process: str):
         self.data["app_mappings"] = [m for m in self.app_mappings if m["process"] != process]
         self.save()
+        log("TRACKER", f"Видалено авто-правило: {process}")
 
     def start_session(self, category_id: str) -> dict:
         if self.active_session:
@@ -110,6 +117,8 @@ class DataManager:
         }
         self.data["active_session"] = session
         self.save()
+        cat = self.get_category(category_id)
+        log("TRACKER", f"Старт сесії: {cat['name'] if cat else category_id}")
         return session
 
     def stop_session(self) -> dict | None:
@@ -126,6 +135,8 @@ class DataManager:
         self.sessions.append(s)
         self.data["active_session"] = None
         self.save()
+        cat = self.get_category(s["category_id"])
+        log("TRACKER", f"Стоп сесії: {cat['name'] if cat else s['category_id']} — тривалість {fmt_time(s['duration'])}")
         return s
 
     def get_today_time(self, category_id: str) -> int:

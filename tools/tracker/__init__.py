@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QApplication
 
 from tools.base import BaseTool
+from tools.logger import log
 from .manager import DataManager
 from .thread import WindowTrackerThread
 from .screen import TrackerScreen
@@ -26,6 +27,7 @@ class TrackerTool(BaseTool):
         QApplication.instance().aboutToQuit.connect(self.shutdown)
 
     def _on_window(self, proc: str, _title: str):
+        log("AUTO", f"Активне вікно змінилося: {proc}")
         cat_id = self.dm.get_category_for_process(proc)
         if cat_id:
             self._screen.auto_start(cat_id)
@@ -34,5 +36,6 @@ class TrackerTool(BaseTool):
 
     def shutdown(self):
         if self._wt:
+            log("AUTO", "Зупинка авто-трекера активних вікон")
             self._wt.stop()
             self._wt.wait(2000)
