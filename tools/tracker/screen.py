@@ -29,6 +29,11 @@ def _fmt_compact(seconds: int) -> str:
         return f"{h}г {m:02d}хв" if m else f"{h}г"
     return f"{m}хв"
 
+def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+    hex_color = hex_color.lstrip("#")
+    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
 class BarWidget(QWidget):
     def __init__(self, ratio: float, color: str):
         super().__init__()
@@ -49,30 +54,41 @@ class BarWidget(QWidget):
         p.end()
 
 class CategoryCard(QFrame):
-    def __init__(self, category: dict, seconds: int, active: bool = False):
+    def __init__(self, category: dict, seconds: int, active: bool = False, on_click=None):
         super().__init__()
-        self.setFixedHeight(68)
-        border = category["color"] if active else "#3A3A3C"
+        self._cat_id = category["id"]
+        self._on_click = on_click
+        self.setFixedHeight(34)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if active:
+            bg = _hex_to_rgba(category["color"], 0.18)
+            border = category["color"]
+        else:
+            bg = "#2C2C2E"
+            border = "#3A3A3C"
         self.setStyleSheet(
-            f"QFrame {{ background: #2C2C2E; border-radius: 12px; border: 1.5px solid {border}; }}"
+            f"QFrame {{ background: {bg}; border-radius: 10px; border: 1.5px solid {border}; }}"
         )
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(4)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 4, 10, 4)
+        lay.setSpacing(6)
 
-        top = QHBoxLayout()
         dot = QLabel("●")
-        dot.setStyleSheet(f"color: {category['color']}; font-size: 10px; border: none;")
+        dot.setStyleSheet(f"color: {category['color']}; font-size: 9px; border: none; background: transparent;")
         name = QLabel(category["name"])
-        name.setStyleSheet("color: #8E8E93; font-size: 11px; border: none;")
-        top.addWidget(dot)
-        top.addWidget(name)
-        top.addStretch()
-        lay.addLayout(top)
+        name.setStyleSheet("color: #8E8E93; font-size: 11px; border: none; background: transparent;")
+        lay.addWidget(dot)
+        lay.addWidget(name)
+        lay.addStretch()
 
         time_lbl = QLabel(fmt_time(seconds))
-        time_lbl.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: 500; border: none;")
+        time_lbl.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 500; border: none; background: transparent;")
         lay.addWidget(time_lbl)
+
+    def mousePressEvent(self, event):
+        if self._on_click:
+            self._on_click(self._cat_id)
+        super().mousePressEvent(event)
 
 class TrackerScreen(QWidget):
     def __init__(self, dm: DataManager, on_global_refresh=None):
@@ -80,6 +96,8 @@ class TrackerScreen(QWidget):
         self.dm = dm
         self._on_global_refresh = on_global_refresh
         self._auto_active = False
+        self._cats_expanded = False
+        self._journal_expanded = False
         self._setup_ui()
         self._tick = QTimer()
         self._tick.timeout.connect(self._update_timer)
@@ -168,7 +186,9 @@ class TrackerScreen(QWidget):
             lay.addWidget(card)
 
         section("⏱  Ручний трекер",
-            "Обери категорію зі списку і натисни ▶. Натисни ⏹ Стоп коли закінчив. "
+            "Натисни на картку категорії — вона підсвітиться і запуститься таймер. "
+            "Щоб зупинити — натисни на ту саму картку ще раз. "
+            "Щоб переключитись на іншу категорію — просто натисни на неї. "
             "Всі сесії відображаються в журналі нижче.")
 
         section("🔄  Авто трекер",
@@ -213,14 +233,25 @@ class TrackerScreen(QWidget):
         self._cards_grid.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self._cards_container)
 
+        self._cats_toggle_btn = QPushButton()
+        self._cats_toggle_btn.setFlat(True)
+        self._cats_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cats_toggle_btn.setStyleSheet(
+            "QPushButton { color: #7B6CF6; font-size: 11px; font-weight: 600; "
+            "text-align: left; background: transparent; border: none; padding: 0px; }"
+        )
+        self._cats_toggle_btn.clicked.connect(self._toggle_categories)
+        self._cats_toggle_btn.hide()
+        lay.addWidget(self._cats_toggle_btn)
+
         timer_frame = QFrame()
         timer_frame.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; }")
-        timer_frame.setMinimumHeight(110)
+        timer_frame.setMinimumHeight(90)
         tl = QVBoxLayout(timer_frame)
         tl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tl.setSpacing(6)
 
-        self._timer_status = QLabel("Оберіть категорію і натисни ▶")
+        self._timer_status = QLabel("Натисніть на категорію щоб почати")
         self._timer_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._timer_status.setStyleSheet("color: #8E8E93; font-size: 13px;")
 
@@ -230,45 +261,31 @@ class TrackerScreen(QWidget):
             "color: #FFFFFF; font-size: 36px; font-weight: 300; font-family: 'Courier New', monospace;"
         )
 
-        self._stop_btn = QPushButton("⏹  Стоп")
-        self._stop_btn.setObjectName("stopBtn")
-        self._stop_btn.setFixedWidth(130)
-        self._stop_btn.hide()
-        self._stop_btn.clicked.connect(self._on_stop)
-
         tl.addWidget(self._timer_status)
         tl.addWidget(self._timer_display)
-        stop_row = QHBoxLayout()
-        stop_row.addStretch()
-        stop_row.addWidget(self._stop_btn)
-        stop_row.addStretch()
-        tl.addLayout(stop_row)
         lay.addWidget(timer_frame)
 
-        ctrl = QHBoxLayout()
-        self._combo = QComboBox()
-        self._combo.addItem("Оберіть категорію…")
-        self._start_btn = QPushButton("▶")
-        self._start_btn.setObjectName("accentBtn")
-        self._start_btn.setFixedSize(42, 42)
-        self._start_btn.clicked.connect(self._on_start)
-        ctrl.addWidget(self._combo)
-        ctrl.addWidget(self._start_btn)
-        lay.addLayout(ctrl)
-
-        jlbl = QLabel("ЖУРНАЛ")
-        jlbl.setStyleSheet("color: #8E8E93; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
-        lay.addWidget(jlbl)
+        self._journal_toggle_btn = QPushButton("ЖУРНАЛ  ▸")
+        self._journal_toggle_btn.setFlat(True)
+        self._journal_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._journal_toggle_btn.setStyleSheet(
+            "QPushButton { color: #8E8E93; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; "
+            "text-align: left; background: transparent; border: none; padding: 0px; }"
+        )
+        self._journal_toggle_btn.clicked.connect(self._toggle_journal)
+        lay.addWidget(self._journal_toggle_btn)
 
         self._journal_inner = QWidget()
         self._journal_layout = QVBoxLayout(self._journal_inner)
         self._journal_layout.setContentsMargins(0, 0, 0, 0)
         self._journal_layout.setSpacing(4)
 
-        scroll = QScrollArea()
-        scroll.setWidget(self._journal_inner)
-        scroll.setWidgetResizable(True)
-        lay.addWidget(scroll)
+        self._journal_scroll = QScrollArea()
+        self._journal_scroll.setWidget(self._journal_inner)
+        self._journal_scroll.setWidgetResizable(True)
+        self._journal_scroll.setVisible(self._journal_expanded)
+        lay.addWidget(self._journal_scroll)
+        lay.addStretch()
 
         return page
 
@@ -388,31 +405,17 @@ class TrackerScreen(QWidget):
         dlg.exec()
 
     def refresh(self):
-        prev_idx = self._combo.currentIndex()
-        self._combo.clear()
-        self._combo.addItem("Оберіть категорію…")
-        for c in self.dm.categories:
-            self._combo.addItem(c["name"])
-        if 0 < prev_idx <= len(self.dm.categories):
-            self._combo.setCurrentIndex(prev_idx)
-
-        clear_layout(self._cards_grid)
-        active_cid = self.dm.active_session["category_id"] if self.dm.active_session else None
-        for i, cat in enumerate(self.dm.categories):
-            card = CategoryCard(cat, self.dm.get_today_time(cat["id"]), cat["id"] == active_cid)
-            self._cards_grid.addWidget(card, i // 2, i % 2)
+        self._refresh_cards()
 
         if self.dm.active_session:
             cat = self.dm.get_category(self.dm.active_session["category_id"])
             self._timer_status.setText(f"{cat['name']} — активно" if cat else "Активно")
             color = cat["color"] if cat else "#7B6CF6"
             self._timer_status.setStyleSheet(f"color: {color}; font-size: 13px;")
-            self._stop_btn.show()
         else:
-            self._timer_status.setText("Оберіть категорію і натисни ▶")
+            self._timer_status.setText("Натисніть на категорію щоб почати")
             self._timer_status.setStyleSheet("color: #8E8E93; font-size: 13px;")
             self._timer_display.setText("00:00:00")
-            self._stop_btn.hide()
 
         clear_layout(self._journal_layout)
         sessions = self.dm.get_today_sessions()
@@ -430,31 +433,48 @@ class TrackerScreen(QWidget):
             self._journal_layout.addWidget(empty)
         self._journal_layout.addStretch()
 
+    def _refresh_cards(self):
+        clear_layout(self._cards_grid)
+        active_cid = self.dm.active_session["category_id"] if self.dm.active_session else None
+        cats_sorted = sorted(
+            self.dm.categories, key=lambda c: self.dm.get_today_time(c["id"]), reverse=True
+        )
+        visible = cats_sorted if self._cats_expanded else cats_sorted[:8]
+        for i, cat in enumerate(visible):
+            card = CategoryCard(cat, self.dm.get_today_time(cat["id"]), cat["id"] == active_cid, self._on_card_click)
+            self._cards_grid.addWidget(card, i // 2, i % 2)
+
+        extra = len(cats_sorted) - 8
+        if extra > 0:
+            self._cats_toggle_btn.setText("Згорнути  ▴" if self._cats_expanded else f"Ще {extra}  ▾")
+            self._cats_toggle_btn.show()
+        else:
+            self._cats_toggle_btn.hide()
+
+    def _toggle_categories(self):
+        self._cats_expanded = not self._cats_expanded
+        self._refresh_cards()
+
+    def _on_card_click(self, cat_id: str):
+        self._auto_active = False
+        if self.dm.active_session and self.dm.active_session["category_id"] == cat_id:
+            self.dm.stop_session()
+        else:
+            self.dm.start_session(cat_id)
+        self.refresh()
+
+    def _toggle_journal(self):
+        self._journal_expanded = not self._journal_expanded
+        self._journal_scroll.setVisible(self._journal_expanded)
+        self._journal_toggle_btn.setText(f"ЖУРНАЛ  {'▾' if self._journal_expanded else '▸'}")
+
     def _update_timer(self):
         if self.dm.active_session:
             start = datetime.fromisoformat(self.dm.active_session["start"])
             secs = int((datetime.now() - start).total_seconds())
             self._timer_display.setText(fmt_timer(secs))
             if secs % 60 == 0:
-                clear_layout(self._cards_grid)
-                active_cid = self.dm.active_session["category_id"]
-                for i, cat in enumerate(self.dm.categories):
-                    card = CategoryCard(cat, self.dm.get_today_time(cat["id"]), cat["id"] == active_cid)
-                    self._cards_grid.addWidget(card, i // 2, i % 2)
-
-    def _on_start(self):
-        idx = self._combo.currentIndex()
-        if idx <= 0:
-            return
-        cat = self.dm.categories[idx - 1]
-        self._auto_active = False
-        self.dm.start_session(cat["id"])
-        self.refresh()
-
-    def _on_stop(self):
-        self._auto_active = False
-        self.dm.stop_session()
-        self.refresh()
+                self._refresh_cards()
 
     def auto_start(self, category_id: str):
         if self.dm.active_session and self.dm.active_session["category_id"] == category_id:
