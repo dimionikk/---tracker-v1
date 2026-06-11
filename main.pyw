@@ -53,7 +53,6 @@ from tools.logger import log
 from tools.notifications import SettingsManager
 from tools.tracker import TrackerTool
 from tools.planner import PlannerTool
-from tools.settings import SettingsTool
 
 def _log_uncaught(exc_type, exc_value, exc_tb):
     text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -66,7 +65,6 @@ _settings_manager = SettingsManager()
 TOOLS = [
     TrackerTool(),
     PlannerTool(_settings_manager),
-    SettingsTool(_settings_manager),
 ]
 
 class Sidebar(QWidget):

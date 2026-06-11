@@ -10,6 +10,8 @@ from PyQt6.QtGui import QColor, QPainter
 
 from styles import STYLE
 from tools.common import section_label, icon_btn, format_date_ua, clear_layout
+from tools.logger import log
+from tools.settings.screen import SettingsScreen
 from .manager import PlannerManager, time_to_minutes, minutes_to_time
 
 PX_PER_HOUR = 46
@@ -314,9 +316,10 @@ class MonthCalendar(QFrame):
         lay.addLayout(grid_row)
 
 class PlannerScreen(QWidget):
-    def __init__(self, pm: PlannerManager):
+    def __init__(self, pm: PlannerManager, sm=None):
         super().__init__()
         self.pm = pm
+        self.sm = sm
         self.current_date = date.today()
         self._year = date.today().year
         self._setup_ui()
@@ -348,6 +351,10 @@ class PlannerScreen(QWidget):
         today_btn.clicked.connect(self._goto_today)
         action_row.addWidget(today_btn)
         action_row.addStretch()
+        notif_btn = QPushButton("🔔 Сповіщення")
+        notif_btn.setFixedHeight(28)
+        notif_btn.clicked.connect(self._open_notifications)
+        action_row.addWidget(notif_btn)
         add_btn = QPushButton("+ Подія")
         add_btn.setObjectName("accentBtn")
         add_btn.setFixedHeight(28)
@@ -469,6 +476,17 @@ class PlannerScreen(QWidget):
             data = dlg.get_data()
             self.pm.add_event(self.current_date.isoformat(), data["time"], data["duration"], data["title"])
             self.refresh()
+
+    def _open_notifications(self):
+        dlg = QDialog(self)
+        dlg.setStyleSheet(STYLE)
+        dlg.setWindowTitle("Сповіщення")
+        dlg.setMinimumSize(420, 580)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(SettingsScreen(self.sm))
+        log("PLANNER", "Відкрито налаштування сповіщень")
+        dlg.exec()
 
     def _edit_event(self, event_id: str):
         event = self.pm.get_event(event_id)

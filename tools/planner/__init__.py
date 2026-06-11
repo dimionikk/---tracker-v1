@@ -24,7 +24,7 @@ class PlannerTool(BaseTool):
         self._tg_threads = []
 
     def build_widget(self):
-        self._screen = PlannerScreen(self.pm)
+        self._screen = PlannerScreen(self.pm, self.sm)
         self._timer = QTimer()
         self._timer.timeout.connect(self._check_reminders)
         self._timer.start(CHECK_INTERVAL_MS)
