@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QSpinBox, QCheckBox, QFrame, QRadioButton, QButtonGroup
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal
 
 from tools.common import section_label
 from tools.notifications import SettingsManager, send_telegram_message, fetch_latest_chat_id

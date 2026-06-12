@@ -10,7 +10,6 @@ from PyQt6.QtGui import QColor, QPainter
 
 from styles import STYLE
 from tools.common import section_label, icon_btn, format_date_ua, clear_layout
-from tools.logger import log
 from tools.settings.screen import SettingsScreen
 from .manager import PlannerManager, time_to_minutes, minutes_to_time
 
@@ -485,7 +484,6 @@ class PlannerScreen(QWidget):
         lay = QVBoxLayout(dlg)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(SettingsScreen(self.sm))
-        log("PLANNER", "Відкрито налаштування сповіщень")
         dlg.exec()
 
     def _edit_event(self, event_id: str):

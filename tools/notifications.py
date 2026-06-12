@@ -6,7 +6,6 @@ import urllib.parse
 from PyQt6.QtCore import QThread
 
 from tools.common import DATA_DIR
-from tools.logger import log
 
 SETTINGS_FILE = DATA_DIR / "settings.json"
 
@@ -50,10 +49,6 @@ class SettingsManager:
     def set(self, key, value):
         self.data[key] = value
         self.save()
-        if key == "telegram_token":
-            log("SETTINGS", "Змінено токен Telegram-бота")
-        else:
-            log("SETTINGS", f"Змінено налаштування: {key} = {value}")
 
 
 def _telegram_api_call(token: str, method: str, params: dict = None, timeout: int = 8) -> dict:
@@ -70,9 +65,7 @@ def send_telegram_message(token: str, chat_id: str, text: str):
     result = _telegram_api_call(token, "sendMessage", {"chat_id": chat_id, "text": text})
     if not result.get("ok"):
         err = result.get("description", "Невідома помилка Telegram API")
-        log("TELEGRAM", f"Помилка надсилання повідомлення: {err}")
         raise RuntimeError(err)
-    log("TELEGRAM", f"Надіслано повідомлення: {text}")
     return result
 
 
@@ -111,14 +104,12 @@ def fetch_latest_chat_id(token: str, chat_type: str = "group") -> dict | None:
             found = chat
 
     if not found:
-        log("TELEGRAM", "Chat ID не знайдено")
         return None
     chat = {
         "id": str(found["id"]),
         "type": found.get("type", ""),
         "title": found.get("title") or found.get("username") or found.get("first_name") or "",
     }
-    log("TELEGRAM", f"Знайдено chat ID: {chat['id']} ({chat['type']} {chat['title']})")
     return chat
 
 
@@ -134,5 +125,5 @@ class TelegramSenderThread(QThread):
     def run(self):
         try:
             send_telegram_message(self._token, self._chat_id, self._text)
-        except Exception as e:
-            log("TELEGRAM", f"Не вдалося надіслати повідомлення: {e}")
+        except Exception:
+            pass

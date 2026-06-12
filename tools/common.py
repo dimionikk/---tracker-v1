@@ -52,7 +52,11 @@ def icon_btn(icon: str, callback, data, danger: bool = False) -> QPushButton:
     btn = QPushButton(icon)
     btn.setFixedSize(28, 28)
     color = "#FF453A" if danger else "#FFFFFF"
-    btn.setStyleSheet(f"background: #3A3A3C; border-radius: 6px; color: {color}; font-size: 14px;")
+    btn.setStyleSheet(
+        f"QPushButton {{ background: #3A3A3C; border-radius: 6px; color: {color}; "
+        f"font-size: 14px; padding: 0px; }}"
+        f"QPushButton:hover {{ background: #48484A; }}"
+    )
     btn.clicked.connect(lambda: callback(data))
     return btn
 

@@ -39,26 +39,19 @@ if _missing:
 
 import os
 import socket
-import traceback
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QPushButton, QButtonGroup, QSystemTrayIcon, QMenu
 )
+from PyQt6.QtCore import Qt, QSocketNotifier
 from PyQt6.QtGui import QIcon
 
 from styles import STYLE
-from tools.logger import log
 from tools.notifications import SettingsManager
 from tools.tracker import TrackerTool
 from tools.planner import PlannerTool
-
-def _log_uncaught(exc_type, exc_value, exc_tb):
-    text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-    log("ERROR", f"Необроблена помилка:\n{text}")
-
-sys.excepthook = _log_uncaught
 
 _settings_manager = SettingsManager()
 
@@ -130,7 +123,6 @@ class MainWindow(QMainWindow):
         TOOLS[self._stack.currentIndex()].on_deactivate()
         self._stack.setCurrentIndex(idx)
         TOOLS[idx].on_activate()
-        log("APP", f"Перемкнено інструмент: {TOOLS[idx].TITLE}")
 
     def _setup_tray(self):
         icon_path = Path(os.path.dirname(os.path.abspath(__file__))) / "icon.ico"
@@ -148,17 +140,19 @@ class MainWindow(QMainWindow):
         self._tray.show()
 
     def _show_from_tray(self):
-        log("APP", "Вікно відкрито з трею")
+        self.setWindowState(
+            (self.windowState() & ~Qt.WindowState.WindowMinimized) | Qt.WindowState.WindowActive
+        )
         self.show()
+        self.raise_()
+        self.activateWindow()
 
     def _quit_app(self):
-        log("APP", "Вихід з програми (через трей)")
         QApplication.instance().quit()
 
     def closeEvent(self, event):
         event.ignore()
         self.hide()
-        log("APP", "Вікно згорнуто у трей")
         self._tray.showMessage(
             "Мої інструменти", "Згорнуто в трей. ПКМ по іконці -> Вийти.",
             QSystemTrayIcon.MessageIcon.Information, 2500
@@ -167,17 +161,37 @@ class MainWindow(QMainWindow):
 _lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
     _lock_sock.bind(('127.0.0.1', 47291))
+    _lock_sock.listen(5)
+    _lock_sock.setblocking(False)
 except OSError:
-    log("APP", "Повторний запуск заблоковано — програма вже запущена")
+    try:
+        _wake_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _wake_sock.settimeout(0.5)
+        _wake_sock.connect(('127.0.0.1', 47291))
+        _wake_sock.close()
+    except OSError:
+        pass
     sys.exit(0)
 
 def main():
-    log("APP", "Програма запущена")
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("Tracker")
     win = MainWindow()
     win.show()
+
+    def _on_wake_connection(_fd):
+        try:
+            conn, _ = _lock_sock.accept()
+            conn.close()
+        except OSError:
+            pass
+        win._show_from_tray()
+
+    notifier = QSocketNotifier(_lock_sock.fileno(), QSocketNotifier.Type.Read, app)
+    notifier.activated.connect(_on_wake_connection)
+    win._wake_notifier = notifier
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":

@@ -3,7 +3,6 @@ from datetime import datetime
 from PyQt6.QtCore import QTimer
 
 from tools.base import BaseTool
-from tools.logger import log
 from tools.notifications import SettingsManager, TelegramSenderThread
 from .manager import PlannerManager, time_to_minutes
 from .screen import PlannerScreen
@@ -55,15 +54,14 @@ class PlannerTool(BaseTool):
                 if 0 <= delta <= lead:
                     self._send_reminder(e)
                     self._notified.add(key)
-        except Exception as ex:
-            log("PLANNER", f"Помилка перевірки нагадувань: {ex}")
+        except Exception:
+            pass
 
     def _send_reminder(self, e: dict):
         try:
             text = f"{e['title']} о {e['time']}"
             if self._notify and self.sm.get("desktop_enabled"):
                 self._notify("Нагадування", text)
-                log("PLANNER", f"Надіслано нагадування на робочому столі: {text}")
 
             if self.sm.get("telegram_enabled"):
                 token = self.sm.get("telegram_token")
@@ -78,8 +76,8 @@ class PlannerTool(BaseTool):
                     thread.finished.connect(lambda t=thread: self._tg_threads.remove(t) if t in self._tg_threads else None)
                     self._tg_threads.append(thread)
                     thread.start()
-        except Exception as ex:
-            log("PLANNER", f"Помилка надсилання нагадування: {ex}")
+        except Exception:
+            pass
 
     def shutdown(self):
         if self._timer:

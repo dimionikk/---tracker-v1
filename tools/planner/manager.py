@@ -3,7 +3,6 @@ import os
 import uuid
 
 from tools.common import DATA_DIR
-from tools.logger import log
 
 DATA_FILE = DATA_DIR / "planner.json"
 
@@ -64,7 +63,6 @@ class PlannerManager:
         }
         self.data["events"].append(event)
         self.save()
-        log("PLANNER", f"Додано подію: «{title}» ({date_str} {time_str}, {duration} хв)")
         return event
 
     def update_event(self, event_id: str, **fields):
@@ -72,14 +70,10 @@ class PlannerManager:
         if event:
             event.update(fields)
             self.save()
-            log("PLANNER", f"Оновлено подію: «{event['title']}» ({event['date']} {event['time']}, {event['duration']} хв)")
 
     def delete_event(self, event_id: str):
-        event = self.get_event(event_id)
         self.data["events"] = [e for e in self.data["events"] if e["id"] != event_id]
         self.save()
-        if event:
-            log("PLANNER", f"Видалено подію: «{event['title']}» ({event['date']} {event['time']})")
 
     @staticmethod
     def find_conflicts(events: list) -> set:
