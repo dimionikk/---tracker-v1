@@ -18,6 +18,9 @@ TIMELINE_HEIGHT = 24 * PX_PER_HOUR
 LABEL_WIDTH = 38
 TOP_PAD = 4
 DAY_START_HOUR = 7
+# Minimum block height in px - tall enough for one line of label text.
+# Blocks taller than this match the event's duration exactly.
+MIN_BLOCK_HEIGHT = 16
 
 def _shift_minutes(minutes: int) -> int:
     """Convert real time-of-day minutes to position-minutes where DAY_START_HOUR is 0."""
@@ -26,6 +29,52 @@ def _shift_minutes(minutes: int) -> int:
 def _unshift_minutes(pos_minutes: int) -> int:
     """Convert position-minutes (0 = DAY_START_HOUR) back to real time-of-day minutes."""
     return (pos_minutes + DAY_START_HOUR * 60) % (24 * 60)
+
+# Blocks are rendered with a minimum height of MIN_BLOCK_HEIGHT px, so two
+# events whose real time ranges don't overlap can still visually overlap if
+# they start less than this many minutes apart. Treat that as an overlap too
+# when laying out columns.
+_MIN_BLOCK_MINUTES = -(-MIN_BLOCK_HEIGHT * 60 // PX_PER_HOUR)  # ceil
+
+def _layout_events(events: list) -> dict:
+    """Compute a (column, total_columns) for each event so that overlapping
+    events are placed side by side instead of stacking on top of each other."""
+    items = sorted(events, key=lambda e: (time_to_minutes(e["time"]), -e["duration"]))
+
+    layout = {}
+    cluster_ids = []
+    cluster_end = -1
+    columns = []  # columns[i] = end time of the last event placed in column i
+
+    def flush_cluster():
+        total = len(columns)
+        for eid in cluster_ids:
+            layout[eid][1] = total
+
+    for e in items:
+        start = time_to_minutes(e["time"])
+        end = start + max(e["duration"], _MIN_BLOCK_MINUTES)
+
+        if cluster_ids and start >= cluster_end:
+            flush_cluster()
+            cluster_ids.clear()
+            columns.clear()
+            cluster_end = -1
+
+        for i, col_end in enumerate(columns):
+            if col_end <= start:
+                columns[i] = end
+                layout[e["id"]] = [i, 0]
+                break
+        else:
+            columns.append(end)
+            layout[e["id"]] = [len(columns) - 1, 0]
+
+        cluster_ids.append(e["id"])
+        cluster_end = max(cluster_end, end)
+
+    flush_cluster()
+    return {eid: (col, total) for eid, (col, total) in layout.items()}
 
 class EventBlock(QFrame):
 
@@ -37,21 +86,17 @@ class EventBlock(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(6, 1, 6, 1)
+        lay.setContentsMargins(6, 0, 6, 0)
         lay.setSpacing(0)
 
-        title = QLabel(event["title"] or "Без назви")
-        title.setStyleSheet("font-weight: 600; font-size: 11px; background: transparent; color: #FFFFFF;")
-        lay.addWidget(title)
-
         end_min = time_to_minutes(event["time"]) + event["duration"]
-        sub_text = f'{event["time"]}–{minutes_to_time(end_min)}'
+        title_text = event["title"] or "Без назви"
+        text = f'{event["time"]}–{minutes_to_time(end_min)}  {title_text}'
         if conflict:
-            sub_text += "  🔴 конфлікт"
-        sub = QLabel(sub_text)
-        sub.setStyleSheet("font-size: 9px; background: transparent; color: rgba(255,255,255,0.8);")
-        lay.addWidget(sub)
-        lay.addStretch()
+            text += "  🔴"
+        label = QLabel(text)
+        label.setStyleSheet("font-weight: 600; font-size: 10px; background: transparent; color: #FFFFFF;")
+        lay.addWidget(label)
 
     def mousePressEvent(self, event):
         if self._on_click:
@@ -72,23 +117,34 @@ class TimelineWidget(QWidget):
         self.setMinimumWidth(200)
 
     def set_events(self, events: list, conflicts: set, show_now: bool = False):
-        for b in self._blocks:
+        for b, _, _ in self._blocks:
             b.deleteLater()
         self._blocks = []
         self._show_now = show_now
 
+        layout = _layout_events(events)
         for e in events:
             block = EventBlock(e, e["id"] in conflicts, self._on_click, self)
             start = _shift_minutes(time_to_minutes(e["time"]))
             y = TOP_PAD + start * PX_PER_HOUR // 60
-            h = max(e["duration"] * PX_PER_HOUR // 60, 16)
-            block.setGeometry(LABEL_WIDTH + 4, y, self._block_width(), h)
+            h = max(e["duration"] * PX_PER_HOUR // 60, MIN_BLOCK_HEIGHT)
+            col, total_cols = layout.get(e["id"], (0, 1))
+            x, w = self._col_rect(col, total_cols)
+            block.setGeometry(x, y, w, h)
             block.show()
-            self._blocks.append(block)
+            self._blocks.append((block, col, total_cols))
         self.update()
 
     def _block_width(self) -> int:
         return max(self.width() - LABEL_WIDTH - 10, 36)
+
+    def _col_rect(self, col: int, total_cols: int) -> tuple[int, int]:
+        total_w = self._block_width()
+        gap = 2
+        total_cols = max(total_cols, 1)
+        col_w = max((total_w - gap * (total_cols - 1)) // total_cols, 20)
+        x = LABEL_WIDTH + 4 + col * (col_w + gap)
+        return x, col_w
 
     def mouseDoubleClickEvent(self, event):
         if self._on_double_click:
@@ -100,10 +156,10 @@ class TimelineWidget(QWidget):
         super().mouseDoubleClickEvent(event)
 
     def resizeEvent(self, event):
-        w = self._block_width()
-        for b in self._blocks:
+        for b, col, total_cols in self._blocks:
             geo = b.geometry()
-            b.setGeometry(LABEL_WIDTH + 4, geo.y(), w, geo.height())
+            x, w = self._col_rect(col, total_cols)
+            b.setGeometry(x, geo.y(), w, geo.height())
         super().resizeEvent(event)
 
     def paintEvent(self, event):
