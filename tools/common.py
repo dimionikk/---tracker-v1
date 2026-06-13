@@ -67,37 +67,63 @@ def _autostart_command() -> str:
     wscript = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "wscript.exe"
     return f'"{wscript}" "{vbs}"'
 
+def _linux_autostart_path() -> Path:
+    return Path.home() / ".config" / "autostart" / f"{_AUTOSTART_NAME}.desktop"
+
+def _linux_autostart_entry() -> str:
+    main_py = PROJECT_ROOT / "main.pyw"
+    return (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Мої інструменти\n"
+        f'Exec={sys.executable} "{main_py}"\n'
+        f'Path={PROJECT_ROOT}\n'
+        "X-GNOME-Autostart-enabled=true\n"
+    )
+
 def is_autostart_enabled() -> bool:
-    if sys.platform != "win32":
-        return False
-    try:
-        import winreg
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0, winreg.KEY_READ
-        ) as key:
-            winreg.QueryValueEx(key, _AUTOSTART_NAME)
-            return True
-    except OSError:
-        return False
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                0, winreg.KEY_READ
+            ) as key:
+                winreg.QueryValueEx(key, _AUTOSTART_NAME)
+                return True
+        except OSError:
+            return False
+    if sys.platform.startswith("linux"):
+        return _linux_autostart_path().exists()
+    return False
 
 def set_autostart(enabled: bool):
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                0, winreg.KEY_SET_VALUE
+            ) as key:
+                if enabled:
+                    winreg.SetValueEx(key, _AUTOSTART_NAME, 0, winreg.REG_SZ, _autostart_command())
+                else:
+                    try:
+                        winreg.DeleteValue(key, _AUTOSTART_NAME)
+                    except FileNotFoundError:
+                        pass
+        except OSError:
+            pass
         return
-    try:
-        import winreg
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0, winreg.KEY_SET_VALUE
-        ) as key:
+    if sys.platform.startswith("linux"):
+        path = _linux_autostart_path()
+        try:
             if enabled:
-                winreg.SetValueEx(key, _AUTOSTART_NAME, 0, winreg.REG_SZ, _autostart_command())
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(_linux_autostart_entry(), encoding="utf-8")
             else:
-                try:
-                    winreg.DeleteValue(key, _AUTOSTART_NAME)
-                except FileNotFoundError:
-                    pass
-    except OSError:
-        pass
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass

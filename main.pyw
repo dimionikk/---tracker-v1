@@ -3,8 +3,9 @@ import sys, importlib.util, subprocess as _sp, os as _os
 _DEPS = [
     ("PyQt6",    "PyQt6"),
     ("psutil",   "psutil"),
-    ("win32gui", "pywin32"),
 ]
+if sys.platform == "win32":
+    _DEPS.append(("win32gui", "pywin32"))
 _missing = [pkg for mod, pkg in _DEPS if importlib.util.find_spec(mod) is None]
 
 if _missing:
@@ -59,6 +60,10 @@ TOOLS = [
     TrackerTool(),
     PlannerTool(_settings_manager),
 ]
+
+if sys.platform == "win32":
+    from tools.programs import ProgramsTool
+    TOOLS.append(ProgramsTool())
 
 class Sidebar(QWidget):
     def __init__(self, tools: list, on_select):
