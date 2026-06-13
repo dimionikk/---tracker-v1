@@ -394,7 +394,13 @@ class TrackerScreen(QWidget):
         self._ignore_list_layout = QVBoxLayout(self._ignore_list_widget)
         self._ignore_list_layout.setContentsMargins(0, 0, 0, 0)
         self._ignore_list_layout.setSpacing(4)
-        right_lay.addWidget(self._ignore_list_widget)
+
+        ignore_scroll = QScrollArea()
+        ignore_scroll.setWidgetResizable(True)
+        ignore_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        ignore_scroll.setFixedHeight(220)
+        ignore_scroll.setWidget(self._ignore_list_widget)
+        right_lay.addWidget(ignore_scroll)
 
         right_lay.addSpacing(6)
 

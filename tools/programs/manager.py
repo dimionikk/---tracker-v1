@@ -10,10 +10,18 @@ DATA_FILE = DATA_DIR / "programs.json"
 
 # Назви ярликів, які зазвичай не є самою програмою і їх варто пропускати.
 _SKIP_KEYWORDS = (
-    "uninstall", "видалити", "видалення", "remove",
-    "readme", "read me", "довідка", "help",
-    "documentation", "документація", "license", "ліцензія",
-    "website", "веб-сайт", "support", "update", "changelog",
+    "uninstall", "видалити", "видалення", "удалить", "удаление", "деинсталл", "деінсталл", "remove",
+    "readme", "read me", "довідка", "довідник", "help",
+    "documentation", "документація", "документация", "license", "ліцензія", "лицензия",
+    "website", "веб-сайт", "сайт", "support", "поддержка", "підтримка",
+    "update", "updater", "оновлення", "оновити", "обновление", "обновить", "changelog",
+    "repair", "відновлення", "восстановление",
+    "installer", "інсталятор", "установщик", "установка",
+    "телеметр", "telemetry", "журнал",
+    "мовні параметри", "языковые параметры", "language settings", "мовні налаштування",
+    "диспетчер записування", "диспетчер записи",
+    "app cert kit", "performance analyzer", "performance recorder",
+    "software development kit", "windows sdk", "gpuview",
 )
 
 # Папки меню «Пуск», де лежать вбудовані/системні засоби Windows —
@@ -47,6 +55,13 @@ def _sort_key(name: str):
     return key
 
 
+def _is_skip_name(name: str) -> bool:
+    """Перевіряє, чи назва схожа на деінсталятор/оновлювач/довідку тощо
+    (не саму програму)."""
+    lname = name.lower()
+    return any(kw in lname for kw in _SKIP_KEYWORDS)
+
+
 def launch_program(path: str) -> tuple[bool, str]:
     if not path:
         return False, "Шлях до програми не вказано."
@@ -58,6 +73,19 @@ def launch_program(path: str) -> tuple[bool, str]:
         return True, ""
     except Exception as e:
         return False, str(e)
+
+
+def reveal_in_explorer(path: str):
+    """Відкриває провідник з виділеним файлом програми."""
+    if not path:
+        return
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(f'explorer /select,"{os.path.normpath(path)}"')
+        else:
+            subprocess.Popen(["xdg-open", os.path.dirname(path)])
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -101,9 +129,6 @@ def scan_start_menu_programs() -> list[dict]:
                 if not fname.lower().endswith(".lnk"):
                     continue
                 name = os.path.splitext(fname)[0]
-                lname = name.lower()
-                if any(kw in lname for kw in _SKIP_KEYWORDS):
-                    continue
                 try:
                     shortcut = shell.CreateShortcut(os.path.join(root, fname))
                     target = shortcut.Targetpath
@@ -125,6 +150,7 @@ def scan_start_menu_programs() -> list[dict]:
 class ProgramsManager:
     def __init__(self):
         self.data = self._load()
+        self.purge_non_programs()
 
     def _load(self) -> dict:
         if DATA_FILE.exists():
@@ -133,6 +159,7 @@ class ProgramsManager:
                     data = json.load(f)
                 data.setdefault("items", [])
                 data.setdefault("ignored", [])
+                data.setdefault("available", [])
                 # Міграція зі старого формату, де ignored — список шляхів (рядків).
                 data["ignored"] = [
                     e if isinstance(e, dict) else {"name": os.path.basename(e), "path": e}
@@ -144,7 +171,7 @@ class ProgramsManager:
         return self._default()
 
     def _default(self) -> dict:
-        return {"items": [], "ignored": []}
+        return {"items": [], "ignored": [], "available": []}
 
     def save(self):
         tmp = DATA_FILE.with_suffix('.tmp')
@@ -153,7 +180,18 @@ class ProgramsManager:
         os.replace(tmp, DATA_FILE)
 
     def list_items(self) -> list:
-        return sorted(self.data["items"], key=lambda i: _sort_key(i["name"]))
+        return sorted(
+            self.data["items"],
+            key=lambda i: (0 if i.get("pinned") else 1, _sort_key(i["name"])),
+        )
+
+    def toggle_pin(self, item_id: str):
+        """Закріплює/відкріплює програму зверху списку."""
+        item = self.get_item(item_id)
+        if not item:
+            return
+        item["pinned"] = not item.get("pinned", False)
+        self.save()
 
     def get_item(self, item_id: str):
         for i in self.data["items"]:
@@ -191,6 +229,47 @@ class ProgramsManager:
             })
         self.save()
 
+    def list_available(self) -> list:
+        return sorted(self.data["available"], key=lambda i: _sort_key(i["name"]))
+
+    def activate_item(self, path: str):
+        """Переносить програму з пулу «Усі програми» в основний список."""
+        key = path.lower()
+        entry = next((e for e in self.data["available"] if e["path"].lower() == key), None)
+        if not entry:
+            return
+        self.data["available"] = [e for e in self.data["available"] if e["path"].lower() != key]
+        if not any(i["path"].lower() == key for i in self.data["items"]):
+            self.data["items"].append({
+                "id": uuid.uuid4().hex,
+                "name": entry["name"],
+                "path": entry["path"],
+            })
+        self.save()
+
+    def rename_item(self, item_id: str, new_name: str):
+        """Перейменовує програму в основному списку."""
+        item = self.get_item(item_id)
+        if not item or not new_name:
+            return
+        item["name"] = new_name
+        self.save()
+
+    def clear_items(self):
+        """Очищає весь основний список програм."""
+        self.data["items"] = []
+        self.save()
+
+    def purge_non_programs(self) -> int:
+        """Видаляє зі списку записи, схожі на деінсталятори/оновлювачі/
+        довідки тощо (не самі програми). Повертає кількість видалених."""
+        before = len(self.data["items"])
+        self.data["items"] = [i for i in self.data["items"] if not _is_skip_name(i["name"])]
+        removed = before - len(self.data["items"])
+        if removed:
+            self.save()
+        return removed
+
     def add_item(self, name: str, path: str) -> dict:
         item = {
             "id": uuid.uuid4().hex,
@@ -202,22 +281,20 @@ class ProgramsManager:
         return item
 
     def sync_scan(self) -> int:
-        """Сканує меню «Пуск» і додає в список нові програми, яких там ще
-        немає і які не в ігнор-листі. Повертає кількість доданих програм."""
+        """Сканує меню «Пуск» і додає нові знайдені програми в пул
+        «Усі програми» (якщо їх ще немає в основному списку, ігнор-листі
+        чи самому пулі). Повертає кількість нових знайдених програм."""
         found = scan_start_menu_programs()
         existing_paths = {i["path"].lower() for i in self.data["items"]}
         ignored_paths = {e["path"].lower() for e in self.data["ignored"]}
+        available_paths = {e["path"].lower() for e in self.data["available"]}
         added = 0
         for prog in found:
             key = prog["path"].lower()
-            if key in existing_paths or key in ignored_paths:
+            if key in existing_paths or key in ignored_paths or key in available_paths:
                 continue
-            self.data["items"].append({
-                "id": uuid.uuid4().hex,
-                "name": prog["name"],
-                "path": prog["path"],
-            })
-            existing_paths.add(key)
+            self.data["available"].append({"name": prog["name"], "path": prog["path"]})
+            available_paths.add(key)
             added += 1
         if added:
             self.save()

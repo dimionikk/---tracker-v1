@@ -1,13 +1,15 @@
 import os
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QFileInfo
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QFrame, QScrollArea, QDialog, QLineEdit, QFileDialog,
+    QFrame, QScrollArea, QDialog, QLineEdit, QFileDialog, QFileIconProvider,
+    QMenu, QInputDialog, QMessageBox, QApplication,
 )
 
-from tools.common import icon_btn
-from .manager import ProgramsManager, launch_program
+from .manager import ProgramsManager, launch_program, reveal_in_explorer
+
+_ICON_PROVIDER = QFileIconProvider()
 
 
 class _ScanWorker(QThread):
@@ -154,43 +156,166 @@ class IgnoreListDialog(QDialog):
         self._populate()
 
 
-class ProgramTile(QFrame):
-    SIZE = (160, 84)
+class AvailableProgramsDialog(QDialog):
+    def __init__(self, pm: ProgramsManager, parent=None):
+        super().__init__(parent)
+        self.pm = pm
+        self.setWindowTitle("Усі програми")
+        self.setMinimumSize(420, 320)
 
-    def __init__(self, item, on_launch, on_ignore, parent=None):
+        root = QVBoxLayout(self)
+        root.setSpacing(8)
+
+        hint = QLabel("Знайдені програми, яких ще немає в основному списку.")
+        hint.setStyleSheet("color: #8E8E93; font-size: 11px;")
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        self.empty_lbl = QLabel("Тут порожньо. Натисніть «🔄 Оновити», щоб пошукати програми.")
+        self.empty_lbl.setStyleSheet("color: #8E8E93; font-size: 13px;")
+        self.empty_lbl.setWordWrap(True)
+        root.addWidget(self.empty_lbl)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._list_host = QWidget()
+        self._list_lay = QVBoxLayout(self._list_host)
+        self._list_lay.setSpacing(6)
+        self._list_lay.addStretch()
+        self._scroll.setWidget(self._list_host)
+        root.addWidget(self._scroll, 1)
+
+        close_row = QHBoxLayout()
+        close_row.addStretch()
+        close_btn = QPushButton("Закрити")
+        close_btn.clicked.connect(self.accept)
+        close_row.addWidget(close_btn)
+        root.addLayout(close_row)
+
+        self._populate()
+
+    def _populate(self):
+        while self._list_lay.count() > 1:
+            item = self._list_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        available = self.pm.list_available()
+        self.empty_lbl.setVisible(not available)
+        self._scroll.setVisible(bool(available))
+
+        for entry in available:
+            row = QFrame()
+            row_lay = QHBoxLayout(row)
+            row_lay.setContentsMargins(8, 6, 8, 6)
+            name_lbl = QLabel(entry["name"])
+            name_lbl.setStyleSheet("color: #FFFFFF; font-size: 13px;")
+            row_lay.addWidget(name_lbl, 1)
+            add_btn = QPushButton("+ Додати")
+            add_btn.setObjectName("accentBtn")
+            add_btn.clicked.connect(lambda _, p=entry["path"]: self._activate(p))
+            row_lay.addWidget(add_btn)
+            self._list_lay.insertWidget(self._list_lay.count() - 1, row)
+
+    def _activate(self, path: str):
+        self.pm.activate_item(path)
+        self._populate()
+
+
+class ProgramTile(QFrame):
+    SIZE = (240, 34)
+
+    def __init__(self, item, on_launch, on_ignore, on_pin, on_rename, parent=None):
         super().__init__(parent)
         self.item_id = item["id"]
+        self._item = item
         self._on_launch = on_launch
+        self._on_rename = on_rename
 
         self.setFixedSize(*self.SIZE)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
-            "QFrame { background: #2C2C2E; border-radius: 10px; }"
+            "QFrame { background: #2C2C2E; border-radius: 8px; }"
             "QFrame:hover { background: #3A3A3C; }"
         )
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(4)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(6, 3, 3, 3)
+        lay.setSpacing(6)
+
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(20, 20)
+        icon_lbl.setStyleSheet("background: transparent;")
+        icon = _ICON_PROVIDER.icon(QFileInfo(item["path"]))
+        icon_lbl.setPixmap(icon.pixmap(20, 20))
+        lay.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        valid = os.path.exists(item["path"])
 
         name_lbl = QLabel(item["name"])
-        name_lbl.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 600;")
+        if valid:
+            name_lbl.setStyleSheet("color: #FFFFFF; font-size: 9px; font-weight: 600;")
+        else:
+            name_lbl.setStyleSheet("color: #8E8E93; font-size: 9px; font-weight: 600;")
+            name_lbl.setToolTip(f'Файл не знайдено: {item["path"]}')
         name_lbl.setWordWrap(True)
-        lay.addWidget(name_lbl)
+        lay.addWidget(name_lbl, 1, Qt.AlignmentFlag.AlignVCenter)
 
-        lay.addStretch()
+        if not valid:
+            warn_lbl = QLabel("⚠")
+            warn_lbl.setStyleSheet("color: #FF9F0A; font-size: 12px; background: transparent;")
+            warn_lbl.setToolTip(f'Файл не знайдено: {item["path"]}')
+            lay.addWidget(warn_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        bottom_row = QHBoxLayout()
-        bottom_row.addStretch()
-        ignore_btn = icon_btn("✕", on_ignore, item["id"], danger=True)
+        pinned = item.get("pinned", False)
+        pin_btn = QPushButton("📌")
+        pin_btn.setFixedSize(22, 22)
+        if pinned:
+            pin_btn.setStyleSheet(
+                "QPushButton { background: transparent; color: #FFD60A;"
+                " border: none; border-radius: 6px; font-size: 13px; padding: 0px; }"
+                "QPushButton:hover { background: #4A4A2A; }"
+            )
+            pin_btn.setToolTip("Відкріпити")
+        else:
+            pin_btn.setStyleSheet(
+                "QPushButton { background: transparent; color: #8E8E93;"
+                " border: none; border-radius: 6px; font-size: 13px; padding: 0px; }"
+                "QPushButton:hover { background: #4A4A2A; color: #FFD60A; }"
+            )
+            pin_btn.setToolTip("Закріпити зверху")
+        pin_btn.clicked.connect(lambda: on_pin(item["id"]))
+        lay.addWidget(pin_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        ignore_btn = QPushButton("✕")
+        ignore_btn.setFixedSize(22, 22)
+        ignore_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #FF453A;"
+            " border: none; border-radius: 6px; font-size: 14px; padding: 0px; }"
+            "QPushButton:hover { background: #4A2A2A; }"
+        )
         ignore_btn.setToolTip("Прибрати зі списку (більше не пропонувати)")
-        bottom_row.addWidget(ignore_btn)
-        lay.addLayout(bottom_row)
+        ignore_btn.clicked.connect(lambda: on_ignore(item["id"]))
+        lay.addWidget(ignore_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._on_launch(self.item_id)
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        open_action = menu.addAction("Відкрити розташування файлу")
+        copy_action = menu.addAction("Копіювати шлях")
+        rename_action = menu.addAction("Перейменувати")
+        action = menu.exec(event.globalPos())
+        if action == open_action:
+            reveal_in_explorer(self._item["path"])
+        elif action == copy_action:
+            QApplication.clipboard().setText(self._item["path"])
+        elif action == rename_action:
+            self._on_rename(self.item_id, self._item["name"])
 
 
 class ProgramsScreen(QWidget):
@@ -202,6 +327,8 @@ class ProgramsScreen(QWidget):
         self._tiles = {}
         self._cols = 0
         self._scan_thread = None
+        self._separator = None
+        self._pinned_count = 0
 
         self._setup_ui()
         self.refresh()
@@ -230,9 +357,17 @@ class ProgramsScreen(QWidget):
         ignore_btn.clicked.connect(self._on_ignore_list)
         header.addWidget(ignore_btn)
 
+        available_btn = QPushButton("📋 Усі програми")
+        available_btn.clicked.connect(self._on_available_list)
+        header.addWidget(available_btn)
+
         self._scan_btn = QPushButton("🔄 Оновити")
         self._scan_btn.clicked.connect(lambda: self._on_scan(silent=False))
         header.addWidget(self._scan_btn)
+
+        clear_btn = QPushButton("🗑 Очистити список")
+        clear_btn.clicked.connect(self._on_clear_all)
+        header.addWidget(clear_btn)
 
         root.addLayout(header)
 
@@ -272,8 +407,11 @@ class ProgramsScreen(QWidget):
                 tile.deleteLater()
             self._tiles = {}
 
-            for item in self.pm.list_items():
-                tile = ProgramTile(item, self._launch, self._ignore)
+            items = self.pm.list_items()
+            self._pinned_count = sum(1 for i in items if i.get("pinned"))
+
+            for item in items:
+                tile = ProgramTile(item, self._launch, self._ignore, self._pin, self._rename)
                 self._tiles[item["id"]] = tile
 
             self._cols = 0
@@ -281,21 +419,34 @@ class ProgramsScreen(QWidget):
         finally:
             self.setUpdatesEnabled(True)
 
+    def _get_separator(self) -> QFrame:
+        if self._separator is None:
+            self._separator = QFrame()
+            self._separator.setFixedSize(ProgramTile.SIZE[0], 2)
+            self._separator.setStyleSheet("background: #48484A; border-radius: 1px;")
+        return self._separator
+
     def _relayout(self, force: bool = False):
-        width = self._scroll.viewport().width()
-        tile_w = ProgramTile.SIZE[0] + self.SPACING
-        cols = max(1, (width + self.SPACING) // tile_w)
-        if cols == self._cols and not force:
+        if self._cols == 1 and not force:
             return
-        self._cols = cols
+        self._cols = 1
 
         for i in reversed(range(self._grid.count())):
             self._grid.takeAt(i)
 
         tiles = list(self._tiles.values())
+        show_separator = 0 < self._pinned_count < len(tiles)
+
+        row = 0
         for idx, tile in enumerate(tiles):
-            r, c = divmod(idx, cols)
-            self._grid.addWidget(tile, r, c)
+            if show_separator and idx == self._pinned_count:
+                self._grid.addWidget(self._get_separator(), row, 0)
+                row += 1
+            self._grid.addWidget(tile, row, 0)
+            row += 1
+
+        if self._separator is not None:
+            self._separator.setVisible(show_separator)
 
         if tiles:
             self.empty_lbl.hide()
@@ -323,6 +474,32 @@ class ProgramsScreen(QWidget):
         self.pm.ignore_item(item_id)
         self.refresh()
 
+    def _pin(self, item_id: str):
+        self.pm.toggle_pin(item_id)
+        self.refresh()
+
+    def _rename(self, item_id: str, current_name: str):
+        new_name, ok = QInputDialog.getText(
+            self, "Перейменувати", "Назва програми:", text=current_name
+        )
+        if ok and new_name.strip():
+            self.pm.rename_item(item_id, new_name.strip())
+            self.refresh()
+
+    def _on_clear_all(self):
+        if not self.pm.list_items():
+            return
+        reply = QMessageBox.question(
+            self,
+            "Очистити список",
+            "Видалити всі програми зі списку? Цю дію неможливо скасувати.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.pm.clear_items()
+            self.refresh()
+
     def _on_add(self):
         dlg = AddProgramDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -332,6 +509,11 @@ class ProgramsScreen(QWidget):
 
     def _on_ignore_list(self):
         dlg = IgnoreListDialog(self.pm, self)
+        dlg.exec()
+        self.refresh()
+
+    def _on_available_list(self):
+        dlg = AvailableProgramsDialog(self.pm, self)
         dlg.exec()
         self.refresh()
 
@@ -356,9 +538,10 @@ class ProgramsScreen(QWidget):
         self._scan_btn.setEnabled(True)
 
         if added:
-            self.refresh()
             self.status_lbl.setStyleSheet("color: #8E8E93; font-size: 12px;")
-            self.status_lbl.setText(f"Додано нових програм: {added}")
+            self.status_lbl.setText(
+                f"Знайдено нових програм: {added} (дивіться «📋 Усі програми»)"
+            )
             self.status_lbl.show()
         elif not silent:
             self.status_lbl.setStyleSheet("color: #8E8E93; font-size: 12px;")
