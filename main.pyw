@@ -1,4 +1,45 @@
-import sys, importlib.util, subprocess as _sp, os as _os
+import sys
+import socket as _socket
+
+# Якщо застосунок уже запущено — «розбудити» його (показати з трею) і вийти,
+# не запитуючи права адміністратора повторно.
+try:
+    _wake = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    _wake.settimeout(0.5)
+    _wake.connect(('127.0.0.1', 47291))
+    _wake.close()
+    sys.exit(0)
+except OSError:
+    pass
+
+# Перезапуск із правами адміністратора — потрібно для розділу «Встановлення» (winget).
+if sys.platform == "win32":
+    import ctypes as _ctypes
+    import os as _os_elev
+
+    try:
+        _is_admin = bool(_ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        _is_admin = True
+    if not _is_admin:
+        # ShellExecute з "runas" запускає новий процес у каталозі System32,
+        # тож шлях до скрипта обов'язково має бути абсолютним, а робочий
+        # каталог — вказаний явно, інакше pythonw.exe не знайде main.pyw
+        # і просто завершиться без жодного вікна.
+        _script = _os_elev.path.abspath(sys.argv[0])
+        _script_dir = _os_elev.path.dirname(_script)
+        _argv = [_script] + sys.argv[1:]
+        _params = " ".join(f'"{a}"' for a in _argv)
+        try:
+            _ret = _ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", sys.executable, _params, _script_dir, 1
+            )
+        except Exception:
+            _ret = 0
+        if _ret > 32:
+            sys.exit(0)
+
+import importlib.util, subprocess as _sp, os as _os
 
 _DEPS = [
     ("PyQt6",    "PyQt6"),
@@ -64,6 +105,9 @@ TOOLS = [
 if sys.platform == "win32":
     from tools.programs import ProgramsTool
     TOOLS.append(ProgramsTool())
+
+    from tools.installer import InstallerTool
+    TOOLS.append(InstallerTool())
 
 class Sidebar(QWidget):
     def __init__(self, tools: list, on_select):

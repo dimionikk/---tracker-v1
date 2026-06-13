@@ -86,6 +86,21 @@ QPushButton#sidebarBtn {
 QPushButton#sidebarBtn:checked { background-color: #3A3A3C; color: #FFFFFF; }
 QPushButton#sidebarBtn:hover:!checked { background-color: #323234; }
 
+/* ── Встановлення: консоль ── */
+QTextEdit#consoleOutput {
+    background-color: #0A0A0B; color: #D0D0D0;
+    border: 1px solid #3A3A3C; border-radius: 8px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px; padding: 8px;
+}
+QLineEdit#consoleInput {
+    background-color: #2C2C2E; color: #FFFFFF;
+    border: 1px solid #3A3A3C; border-radius: 8px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px; padding: 8px 10px;
+}
+QLineEdit#consoleInput:focus { border-color: #7B6CF6; }
+
 /* ── Планувальник: блоки подій на шкалі часу ── */
 QFrame#eventBlock {
     background-color: #0A84FF; border-radius: 8px;

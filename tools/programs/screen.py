@@ -171,6 +171,11 @@ class AvailableProgramsDialog(QDialog):
         hint.setWordWrap(True)
         root.addWidget(hint)
 
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText("🔍 Пошук програм…")
+        self._search_edit.textChanged.connect(self._populate)
+        root.addWidget(self._search_edit)
+
         self.empty_lbl = QLabel("Тут порожньо. Натисніть «🔄 Оновити», щоб пошукати програми.")
         self.empty_lbl.setStyleSheet("color: #8E8E93; font-size: 13px;")
         self.empty_lbl.setWordWrap(True)
@@ -202,16 +207,33 @@ class AvailableProgramsDialog(QDialog):
                 item.widget().deleteLater()
 
         available = self.pm.list_available()
+        query = self._search_edit.text().strip().lower()
+        if query:
+            available = [e for e in available if query in e["name"].lower()]
+
         self.empty_lbl.setVisible(not available)
         self._scroll.setVisible(bool(available))
+        if not available and query:
+            self.empty_lbl.setText("Нічого не знайдено.")
+        else:
+            self.empty_lbl.setText("Тут порожньо. Натисніть «🔄 Оновити», щоб пошукати програми.")
 
         for entry in available:
             row = QFrame()
             row_lay = QHBoxLayout(row)
             row_lay.setContentsMargins(8, 6, 8, 6)
+            row_lay.setSpacing(8)
+
+            icon_lbl = QLabel()
+            icon_lbl.setFixedSize(20, 20)
+            icon_lbl.setStyleSheet("background: transparent;")
+            icon = _ICON_PROVIDER.icon(QFileInfo(entry["path"]))
+            icon_lbl.setPixmap(icon.pixmap(20, 20))
+            row_lay.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+
             name_lbl = QLabel(entry["name"])
             name_lbl.setStyleSheet("color: #FFFFFF; font-size: 13px;")
-            row_lay.addWidget(name_lbl, 1)
+            row_lay.addWidget(name_lbl, 1, Qt.AlignmentFlag.AlignVCenter)
             add_btn = QPushButton("+ Додати")
             add_btn.setObjectName("accentBtn")
             add_btn.clicked.connect(lambda _, p=entry["path"]: self._activate(p))
@@ -325,10 +347,10 @@ class ProgramsScreen(QWidget):
         super().__init__(parent)
         self.pm = pm
         self._tiles = {}
+        self._entries = []
         self._cols = 0
         self._scan_thread = None
         self._separator = None
-        self._pinned_count = 0
 
         self._setup_ui()
         self.refresh()
@@ -371,15 +393,21 @@ class ProgramsScreen(QWidget):
 
         root.addLayout(header)
 
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText("🔍 Пошук програм…")
+        self._search_edit.textChanged.connect(lambda: self._relayout(force=True))
+        root.addWidget(self._search_edit)
+
         self.status_lbl = QLabel("")
         self.status_lbl.setStyleSheet("color: #8E8E93; font-size: 12px;")
         self.status_lbl.hide()
         root.addWidget(self.status_lbl)
 
-        self.empty_lbl = QLabel(
+        self._empty_default_text = (
             "Тут ще немає програм. Натисніть «🔄 Оновити», щоб знайти "
             "встановлені програми."
         )
+        self.empty_lbl = QLabel(self._empty_default_text)
         self.empty_lbl.setStyleSheet("color: #8E8E93; font-size: 13px;")
         self.empty_lbl.setWordWrap(True)
         self.empty_lbl.hide()
@@ -408,11 +436,12 @@ class ProgramsScreen(QWidget):
             self._tiles = {}
 
             items = self.pm.list_items()
-            self._pinned_count = sum(1 for i in items if i.get("pinned"))
 
+            self._entries = []
             for item in items:
                 tile = ProgramTile(item, self._launch, self._ignore, self._pin, self._rename)
                 self._tiles[item["id"]] = tile
+                self._entries.append((item, tile))
 
             self._cols = 0
             self._relayout(force=True)
@@ -434,23 +463,40 @@ class ProgramsScreen(QWidget):
         for i in reversed(range(self._grid.count())):
             self._grid.takeAt(i)
 
-        tiles = list(self._tiles.values())
-        show_separator = 0 < self._pinned_count < len(tiles)
+        query = self._search_edit.text().strip().lower()
+        if query:
+            entries = [(item, tile) for item, tile in self._entries if query in item["name"].lower()]
+        else:
+            entries = self._entries
 
+        pinned_count = sum(1 for item, _ in entries if item.get("pinned"))
+        show_separator = 0 < pinned_count < len(entries)
+
+        visible_ids = set()
         row = 0
-        for idx, tile in enumerate(tiles):
-            if show_separator and idx == self._pinned_count:
+        for idx, (item, tile) in enumerate(entries):
+            if show_separator and idx == pinned_count:
                 self._grid.addWidget(self._get_separator(), row, 0)
                 row += 1
             self._grid.addWidget(tile, row, 0)
+            tile.show()
+            visible_ids.add(item["id"])
             row += 1
 
         if self._separator is not None:
             self._separator.setVisible(show_separator)
 
-        if tiles:
+        for item_id, tile in self._tiles.items():
+            if item_id not in visible_ids:
+                tile.hide()
+
+        if entries:
             self.empty_lbl.hide()
         else:
+            if self._entries and query:
+                self.empty_lbl.setText("Нічого не знайдено.")
+            else:
+                self.empty_lbl.setText(self._empty_default_text)
             self.empty_lbl.show()
 
     def resizeEvent(self, event):
