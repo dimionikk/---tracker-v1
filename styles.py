@@ -1,7 +1,11 @@
+import os
+
 CATEGORY_COLORS = [
     '#7B6CF6', '#4CAF50', '#2196F3', '#FF9800',
     '#FF453A', '#00BCD4', '#E91E63', '#9C27B0'
 ]
+
+_ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
 
 STYLE = """
 QWidget {
@@ -63,6 +67,18 @@ QCheckBox::indicator {
 }
 QCheckBox::indicator:checked { background-color: #7B6CF6; }
 
+/* ── Чекбокс вибору (масові дії у Встановленні) ── */
+QCheckBox#selectCheck { outline: none; spacing: 0px; background: transparent; }
+QCheckBox#selectCheck::indicator {
+    width: 16px; height: 16px; border-radius: 4px;
+    background-color: #2C2C2E; border: 1.5px solid #5A5A5C;
+}
+QCheckBox#selectCheck::indicator:hover { border-color: #7B6CF6; }
+QCheckBox#selectCheck::indicator:checked {
+    background-color: #7B6CF6; border: 1.5px solid #7B6CF6;
+    image: url(ASSETS_DIR/check.svg);
+}
+
 QListWidget {
     background: #2C2C2E; border-radius: 8px;
     border: 1px solid #3A3A3C;
@@ -77,6 +93,14 @@ QMenu {
 QMenu::item { padding: 8px 16px; }
 QMenu::item:selected { background: #3A3A3C; }
 
+/* ── Перемикач режиму (Встановлення) ── */
+QPushButton#modeBtn {
+    background-color: #2C2C2E; color: #8E8E93;
+    border-radius: 8px; padding: 8px 16px;
+}
+QPushButton#modeBtn:hover:!checked { background-color: #3A3A3C; }
+QPushButton#modeBtn:checked { background-color: #7B6CF6; color: #FFFFFF; }
+
 /* ── Бічна панель інструментів ── */
 QWidget#sidebar { background-color: #2C2C2E; }
 QPushButton#sidebarBtn {
@@ -85,21 +109,6 @@ QPushButton#sidebarBtn {
 }
 QPushButton#sidebarBtn:checked { background-color: #3A3A3C; color: #FFFFFF; }
 QPushButton#sidebarBtn:hover:!checked { background-color: #323234; }
-
-/* ── Встановлення: консоль ── */
-QTextEdit#consoleOutput {
-    background-color: #0A0A0B; color: #D0D0D0;
-    border: 1px solid #3A3A3C; border-radius: 8px;
-    font-family: 'Cascadia Code', 'Consolas', monospace;
-    font-size: 12px; padding: 8px;
-}
-QLineEdit#consoleInput {
-    background-color: #2C2C2E; color: #FFFFFF;
-    border: 1px solid #3A3A3C; border-radius: 8px;
-    font-family: 'Cascadia Code', 'Consolas', monospace;
-    font-size: 12px; padding: 8px 10px;
-}
-QLineEdit#consoleInput:focus { border-color: #7B6CF6; }
 
 /* ── Планувальник: блоки подій на шкалі часу ── */
 QFrame#eventBlock {
@@ -111,4 +120,4 @@ QFrame#conflictBlock {
     border: 1px solid #FF8A80;
 }
 QFrame#conflictBlock:hover { background-color: #FF6259; }
-"""
+""".replace("ASSETS_DIR", _ASSETS_DIR)
